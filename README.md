@@ -2,7 +2,7 @@
 
 Programma per il ri-assegnamento dei dipendenti ai vari reparti di un'azienda in base ai loro livelli di stress.
 Utilizza un modello di ottimizzazione (file `paramfunction.mod`) per assegnare i dipendenti ai reparti o a una pausa, minimizzando lo stress complessivo.
-I parametri del modello possono essere modificati tramite il file `param_values.dat` (i parametri `s` e `j0` saranno comunque sovrascritti dal programma principale).
+I parametri del modello possono essere modificati tramite il file `param_values.dat` (il parametro `s` sarà comunque sovrascritti dal programma principale).
 Al momento, il codice è stato testato solo in ambiente Linux.
 
 ## Funzionalità

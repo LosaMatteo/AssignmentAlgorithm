@@ -1,32 +1,75 @@
 """
-- python -m pip install amplpy --upgrade
-- python -m amplpy.modules install cplex
-- pip install flask numpy
-Lanciare:
-- python run_API.py
-In un altro terminale:
-- curl http://127.0.0.1:5000/solve
+Questo codice implementa un'applicazione Flask che gestisce la schedulazione ottimizzata dei dipendenti in diversi reparti
+di un'azienda. Utilizza un modello di ottimizzazione (risolto tramite AMPL e CPLEX) per assegnare i dipendenti ai reparti
+(PRODUZIONE, FORNI, CONFEZIONAMENTO) o a una pausa, minimizzando lo stress complessivo.
+
+Funzionalità principali:
+1. Genera una matrice casuale che rappresenta lo stress dei dipendenti se assegnati a un reparto.
+2. Risolve un problema di ottimizzazione per determinare l'assegnazione ottimale.
+3. Fornisce un endpoint API (`/schedule`) che restituisce l'assegnazione aggiornata in formato JSON.
+
+L'assegnazione corrente viene mantenuta come partenza per la chiamata successiva.
 """
 
 from flask import Flask, jsonify
 import numpy as np
 from amplpy import AMPL
+from enum import Enum
+
+class Task(Enum):
+    PRODUZIONE = 1
+    FORNI = 2
+    CONFEZIONAMENTO = 3
 
 app = Flask(__name__)
 
 # variabile globale per tenere traccia dell'ultimo risultato tra chiamate
-curr_assignment = [1, 1, 1, 1, 1] # param j0
+curr_assignment = None # param j0
+location = "CAPANNONE NUOVO"
+
+# costruzione della risposta alla richiesta di schedulazione nel formato richiesto
+def build_schedule_response(matrix):
+    global location 
+    data = [[0 for _ in range(len(matrix[0]))] for _ in range(len(matrix))]
+    for i in range(len(matrix)):
+        id = str(i+1)
+        row = matrix[i].tolist()
+        try:
+            col = row.index(1) + 1
+            for elem in Task:
+                if elem.value == col:
+                    task = elem.name
+                    break
+            data[i][0] = id
+            data[i][1] = location
+            data[i][2] = task 
+        except ValueError:
+            data[i][0] = id
+            data[i][1] = "PAUSE"
+            data[i][2] = ""
+            continue
+    assignments = []
+    pauses = []
+    
+    for row in data:
+        if row[1] == "PAUSE":
+            pauses.append({"id": row[0]})
+        else:
+            assignments.append({"id": row[0], "location": row[1], "task": row[2]})
+    
+    response = {"assignments": assignments, "pauses": pauses}
+    return jsonify(response)
 
 def solve_optimization(previous_value=None):
     """
-    Genera una matrice casuale di numeri tra 0 e 100 rappresentanti la percentuale di stress del dipendente i-esimo se assegnato al reparto j-esimo.
+    Genera una matrice casuale di numeri tra 0 e 100 rappresentanti la percentuale di stress previste per il dipendente i-esimo se assegnato al reparto j-esimo.
     Risolve il problema di ottimizzazione.
     Utilizza il valore precedente come parametro per la soluzione successiva.
     """
     global curr_assignment
 
     rows, cols = 5, 3  # dipendenti, reparti
-    matrix = np.random.randint(0, 101, (rows, cols))  # generazione matrice casuale s
+    matrix = np.random.randint(10, 101, (rows, cols))  # generazione matrice casuale s
 
     ampl = AMPL()
 
@@ -34,6 +77,10 @@ def solve_optimization(previous_value=None):
     ampl.read("paramfunction.mod")
     # lettura parametri
     ampl.readData("param_values.dat")
+
+    if curr_assignment is None: # assegnamento iniziale
+        val = ampl.getParameter("j0").get_values().toList()
+        curr_assignment = [elem for _, elem in val]
 
     # liste di indici per i set EMPLOYEES e DEPARTMENTS
     employees = list(range(1, rows + 1))
@@ -62,39 +109,33 @@ def solve_optimization(previous_value=None):
     ampl.solve()
 
     # lettura risultati
-    z_value = ampl.getObjective("TotalCost").value()
+    #z_value = ampl.getObjective("TotalCost").value()
     solution = np.zeros((rows, cols))
 
     for i in range(rows):
         for j in range(cols):
             solution[i, j] = ampl.getVariable("x").get(i + 1, j + 1).value()
 
+    response = build_schedule_response(solution)
+
     # costruzione nuovo assegnamento
     check = (solution == 1).any(axis=1)
     new_j0 = np.where(check, np.argmax(solution == 1, axis=1) + 1, 0)
 
-    old_assignment = curr_assignment
+    #old_assignment = curr_assignment
     # aggiornamento j0 per la chiamata successiva
     curr_assignment = new_j0.tolist()
 
-    return solution.tolist(), z_value, old_assignment
+    return response
 
-@app.route('/solve', methods=['GET'])
-def solve():
+@app.route('/schedule', methods=['GET'])
+def schedule():
     """
-    Endpoint API che risolve il problema
-    e mantiene il risultato per fornirlo come parametro al modello
-    nelle chiamate successive.
+    Endpoint API che fornisce il
+    nuovo assegnamento dei dipendeti ai reparti o alla pausa
     """
     global curr_assignment
-    solution, result, old_pos= solve_optimization(curr_assignment)
-
-    return jsonify({
-        "old_pos": old_pos,
-        "solution": solution,
-        "new_pos": curr_assignment,
-        "opt_value": result
-    })
+    return solve_optimization(curr_assignment)
 
 if __name__ == '__main__':
     app.run(debug=True)
