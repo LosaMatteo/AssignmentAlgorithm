@@ -1,0 +1,47 @@
+# Definizione degli insiemi
+set EMPLOYEES := 1 2 3 4 5;
+set DEPARTMENTS := 1 2 3;
+
+# Assegnazione originaria dei dipendenti ai reparti
+# 1: PRODUZIONE, 2: FORNI, 3: CONFEZIONAMENTO
+param j0 :=
+1 1
+2 1
+3 1
+4 1
+5 1;
+
+# Livello di stress atteso s[i,d]
+# I valori sono simulati: per ogni dipendente, valori differenti per ciascun reparto.
+param s:   1    2    3 :=
+1   40   60   50
+2   45   55   65
+3   70   50   60
+4   55   65   45
+5   60   40   50;
+
+# Numero minimo di dipendenti richiesti per ciascun reparto
+param M :=
+1 1
+2 2
+3 1;
+
+# Livello massimo di stress tollerabile per ogni dipendente
+param Smax :=
+1 80
+2 70
+3 50
+4 75
+5 90;
+
+# Penalizzazione per il cambiamento di assegnazione
+param lambda := 10;
+
+# Parametro alpha: competenze dei dipendenti per i reparti
+# 1: PRODUZIONE, 2: FORNI, 3: CONFEZIONAMENTO
+param alpha: 1  2  3 :=
+1    1  1  1
+2    1  1  1
+3    1  1  1
+4    1  1  1
+5    1  1  1;
