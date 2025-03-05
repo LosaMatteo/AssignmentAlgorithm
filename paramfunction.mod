@@ -40,11 +40,6 @@ subject to DeptCoverage {j in DEPARTMENTS}:
 # Vincolo 2: Ogni dipendente può essere assegnato a un solo reparto
 subject to OneAssignment {i in EMPLOYEES}:
     sum {j in DEPARTMENTS} x[i,j] <= 1;
-	
-# Vincolo 2.1: Per garantire l'esattezza
-subject to ExactOneAssignment {i in EMPLOYEES}:
-    sum {j in DEPARTMENTS} x[i,j] >= 1;
-
     
 # Vincolo 3: Un dipendente può essere assegnato a un reparto solo se ha le competenze (alpha[i,j] = 1)
 subject to Competence {i in EMPLOYEES, j in DEPARTMENTS}:
@@ -53,11 +48,7 @@ subject to Competence {i in EMPLOYEES, j in DEPARTMENTS}:
 
 # Vincolo 4: Se il dipendente viene assegnato a un reparto diverso da quello originario, y[i] deve essere 1
 subject to ChangeIndicator {i in EMPLOYEES}:
-    y[i] >= sum {j in DEPARTMENTS: j <> j0[i]} x[i,j];
-
-#Vincolo 4.1: Per garantire l'esattezza
-subject to ExactChangeIndicator {i in EMPLOYEES}:
-    y[i] <= sum {j in DEPARTMENTS: j <> j0[i]} x[i,j];
+    y[i] = sum {j in DEPARTMENTS: j <> j0[i]} x[i,j];
 
 # Vincolo 5 (Opzionale): Il livello di stress assegnato al dipendente non deve superare Smax[i]
 subject to StressLimit {i in EMPLOYEES}:
