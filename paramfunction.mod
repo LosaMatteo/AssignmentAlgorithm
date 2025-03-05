@@ -39,7 +39,12 @@ subject to DeptCoverage {j in DEPARTMENTS}:
 
 # Vincolo 2: Ogni dipendente può essere assegnato a un solo reparto
 subject to OneAssignment {i in EMPLOYEES}:
-    sum {j in DEPARTMENTS} x[i,j] = 1;
+    sum {j in DEPARTMENTS} x[i,j] <= 1;
+	
+# Vincolo 2.1: Per garantire l'esattezza
+subject to ExactOneAssignment {i in EMPLOYEES}:
+    sum {j in DEPARTMENTS} x[i,j] >= 1;
+
     
 # Vincolo 3: Un dipendente può essere assegnato a un reparto solo se ha le competenze (alpha[i,j] = 1)
 subject to Competence {i in EMPLOYEES, j in DEPARTMENTS}:
