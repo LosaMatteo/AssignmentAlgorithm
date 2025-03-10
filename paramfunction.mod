@@ -37,13 +37,14 @@ minimize TotalCost:
 subject to DeptCoverage {j in DEPARTMENTS}:
     sum {i in EMPLOYEES} x[i,j] >= M[j];
 
-# Vincolo 2: Ogni dipendente può essere assegnato a un reparto
+# Vincolo 2: Ogni dipendente può essere assegnato a un solo reparto
 subject to OneAssignment {i in EMPLOYEES}:
     sum {j in DEPARTMENTS} x[i,j] <= 1;
     
 # Vincolo 3: Un dipendente può essere assegnato a un reparto solo se ha le competenze (alpha[i,j] = 1)
 subject to Competence {i in EMPLOYEES, j in DEPARTMENTS}:
     x[i,j] <= alpha[i,j];
+
 
 # Vincolo 4: Se il dipendente viene assegnato a un reparto diverso da quello originario, y[i] deve essere 1
 subject to ChangeIndicator {i in EMPLOYEES}:
@@ -52,4 +53,3 @@ subject to ChangeIndicator {i in EMPLOYEES}:
 # Vincolo 5 (Opzionale): Il livello di stress assegnato al dipendente non deve superare Smax[i]
 subject to StressLimit {i in EMPLOYEES}:
     sum {j in DEPARTMENTS} s[i,j] * x[i,j] <= Smax[i];
-
