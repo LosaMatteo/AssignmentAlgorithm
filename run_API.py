@@ -25,9 +25,9 @@ def solve_optimization(previous_value=None):
     """
     global curr_assignment
 
-    rows, cols = 5, 3  # dipendenti, reparti
+    rows, cols = 5, 4  # dipendenti, reparti
     matrix = np.random.randint(0, 101, (rows, cols))  # generazione matrice casuale s
-
+    #employees va da 1 a 5, departments da 0 a 3
     ampl = AMPL()
 
     # lettura modello
@@ -37,8 +37,7 @@ def solve_optimization(previous_value=None):
 
     # liste di indici per i set EMPLOYEES e DEPARTMENTS
     employees = list(range(1, rows + 1))
-    departments = list(range(1, cols + 1))
-
+    departments = list(range(0, cols))
     # caricamento valori nei set
     employees_set = ampl.getSet("EMPLOYEES")
     employees_set.setValues(employees)
@@ -49,7 +48,7 @@ def solve_optimization(previous_value=None):
     s = ampl.getParameter("s")
     for i in range(rows):
         for j in range(cols):
-            s.set((i+1, j+1), matrix[i, j])
+            s.set((i+1, j), matrix[i, j])
 
     # caricamento assegnamento iniziale come parametro del modello
     j0 = ampl.getParameter("j0")
@@ -67,11 +66,11 @@ def solve_optimization(previous_value=None):
 
     for i in range(rows):
         for j in range(cols):
-            solution[i, j] = ampl.getVariable("x").get(i + 1, j + 1).value()
+            solution[i, j] = ampl.getVariable("x").get(i + 1, j).value()
 
     # costruzione nuovo assegnamento
     check = (solution == 1).any(axis=1)
-    new_j0 = np.where(check, np.argmax(solution == 1, axis=1) + 1, 0)
+    new_j0 = np.where(check, np.argmax(solution == 1, axis=1), 0)
 
     old_assignment = curr_assignment
     # aggiornamento j0 per la chiamata successiva
