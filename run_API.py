@@ -69,11 +69,9 @@ def solve_optimization(previous_value=None):
     global curr_assignment
 
     rows, cols = 5, 4  # dipendenti, reparti
-    matrix = np.random.randint(0, 101, (rows, cols))  # generazione matrice casuale s
-    #employees va da 1 a 5, departments da 0 a 3
-    rows, cols = 5, 3  # dipendenti, reparti
-    matrix = np.random.randint(10, 101, (rows, cols))  # generazione matrice casuale s
-
+    #matrix = np.random.randint(10, 101, (rows, cols))  # generazione matrice casuale s
+    matrix = np.hstack((np.ones((rows, 1)), np.random.randint(10, 101, size=(rows, cols - 1))))
+   
     ampl = AMPL()
 
     # lettura modello
