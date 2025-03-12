@@ -43,7 +43,7 @@ param Smax :=
 param lambda := 5;
 
 # Parametro c_pausa: costo addizionale elevato per l'assegnamento al reparto di pausa
-param c_pausa := 50;
+param c_pausa := 70;
 
 # Parametro alpha: competenze del dipendente per ciascun reparto
 # Per il reparto pausa (j=0) tutti i dipendenti hanno competenza (1)

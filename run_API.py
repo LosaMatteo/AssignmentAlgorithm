@@ -17,15 +17,33 @@ from amplpy import AMPL
 from enum import Enum
 
 class Task(Enum):
-    PRODUZIONE = 1
-    FORNI = 2
-    CONFEZIONAMENTO = 3
+    PAUSE = 1
+    PRODUZIONE = 2
+    FORNI = 3
+    CONFEZIONAMENTO = 4
 
 app = Flask(__name__)
 
 # variabile globale per tenere traccia dell'ultimo risultato tra chiamate
 curr_assignment = None # param j0
 location = "CAPANNONE NUOVO"
+
+# generazione della matrice di stress
+def generate_stress_matrix(rows, cols, assignment):
+    if assignment is not None:
+        matrix = np.empty((0, cols))
+        for elem in assignment:
+            if elem == 0:
+                row = np.full((1, cols), 50)
+            else:
+                row = np.random.randint(20, 100, (1, cols)) 
+            matrix = np.vstack((matrix, row))
+        matrix[:, 0] = 10 # colonna pausa
+        return matrix
+    else:
+        return np.hstack((np.full((rows, 1), 10), np.random.randint(20, 100, size=(rows, cols - 1))))
+
+
 
 # costruzione della risposta alla richiesta di schedulazione nel formato richiesto
 def build_schedule_response(matrix):
@@ -34,20 +52,19 @@ def build_schedule_response(matrix):
     for i in range(len(matrix)):
         id = str(i+1)
         row = matrix[i].tolist()
-        try:
-            col = row.index(1) + 1
-            for elem in Task:
-                if elem.value == col:
-                    task = elem.name
-                    break
+        col = row.index(1) + 1
+        for elem in Task:
+            if elem.value == col:
+                task = elem.name
+                break
+        if task == 'PAUSE':
+            data[i][0] = id
+            data[i][1] = task
+            data[i][2] = ""
+        else:
             data[i][0] = id
             data[i][1] = location
             data[i][2] = task 
-        except ValueError:
-            data[i][0] = id
-            data[i][1] = "PAUSE"
-            data[i][2] = ""
-            continue
     assignments = []
     pauses = []
     
@@ -70,7 +87,7 @@ def solve_optimization(previous_value=None):
 
     rows, cols = 5, 4  # dipendenti, reparti
     #matrix = np.random.randint(10, 101, (rows, cols))  # generazione matrice casuale s
-    matrix = np.hstack((np.ones((rows, 1)), np.random.randint(10, 101, size=(rows, cols - 1))))
+    matrix = generate_stress_matrix(rows, cols, curr_assignment)
    
     ampl = AMPL()
 
@@ -117,6 +134,7 @@ def solve_optimization(previous_value=None):
             solution[i, j] = ampl.getVariable("x").get(i + 1, j).value()
 
     response = build_schedule_response(solution)
+    print(solution)
 
     # costruzione nuovo assegnamento
     check = (solution == 1).any(axis=1)
