@@ -118,6 +118,8 @@ def solve_optimization(previous_value=None):
         for j in range(cols):
             solution[i, j] = ampl.getVariable("x").get(i + 1, j).value()
 
+    response = build_schedule_response(solution)
+
     # costruzione nuovo assegnamento
     check = (solution == 1).any(axis=1)
     new_j0 = np.where(check, np.argmax(solution == 1, axis=1), 0)
