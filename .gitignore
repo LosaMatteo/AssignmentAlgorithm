@@ -1,4 +1,5 @@
 chiamata_singola.py
-token.txt
-generazione_token.py
 prova_servizi.py
+genera_token.py
+*.json
+*.txt
