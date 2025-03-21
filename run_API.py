@@ -17,11 +17,12 @@ from amplpy import AMPL
 from enum import Enum
 import json
 import requests
+import argparse
 
 # variabile globale per tenere traccia dell'ultimo risultato tra chiamate
 curr_assignment = None # param j0
+api = None # flag per usare chiamate api
 location = "CAPANNONE NUOVO" # location dipendenti
-api = False # flag per usare chiamate api
 
 class Task(Enum):
     PAUSE = 1
@@ -304,7 +305,7 @@ def solve_optimization(rows=None, cols=None, matrix=None, assignment=None):
     ampl.readData("param_values.dat")
 
     if assignment is None:
-        rows, cols = 3, 4  # dipendenti, reparti
+        rows, cols = 10, 4  # dipendenti, reparti
         matrix = generate_stress_matrix(rows, cols, curr_assignment)
 
     if curr_assignment is None: # assegnamento iniziale
@@ -380,6 +381,12 @@ def schedule():
         return solve_optimization(len(employees), len(prediction_matrix[0]), prediction_matrix, initial_positions)
     else:
         return solve_optimization()
+    
+parser = argparse.ArgumentParser(description="Argomento flag per chiamata API")
+parser.add_argument("--api", action="store_true", help="Attiva la chiamata ai servizi tramite API")
+args = parser.parse_args()
+
+api = args.api
     
 if api:
     employees = build_employee_list(launch_service())
