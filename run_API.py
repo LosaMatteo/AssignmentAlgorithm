@@ -295,6 +295,7 @@ def solve_optimization(rows=None, cols=None, matrix=None, assignment=None):
     Risolve il problema di ottimizzazione.
     Utilizza il valore precedente come parametro per la soluzione successiva.
     """
+
     global curr_assignment
 
     ampl = AMPL()
@@ -304,14 +305,16 @@ def solve_optimization(rows=None, cols=None, matrix=None, assignment=None):
     # lettura parametri
     ampl.readData("param_values.dat")
 
-    if assignment is None:
+    if matrix is None: # non sto usando api
         rows, cols = 10, 4  # dipendenti, reparti
         matrix = generate_stress_matrix(rows, cols, curr_assignment)
-
-    if curr_assignment is None: # assegnamento iniziale
-        curr_assignment = [1 for _ in range(rows)]
-        #val = ampl.getParameter("j0").get_values().toList()
-        #curr_assignment = [elem for _, elem in val]
+        if curr_assignment is None: # assegnamento iniziale
+            curr_assignment = [1 for _ in range(rows)]
+            #val = ampl.getParameter("j0").get_values().toList()
+            #curr_assignment = [elem for _, elem in val]
+    else: # sto usando api
+        if curr_assignment is None: # prima chiamata, lo schedule corrente non e' stato ancora assegnato
+            curr_assignment = assignment
 
     # liste di indici per i set EMPLOYEES e DEPARTMENTS
     employees = list(range(1, rows + 1))
@@ -336,16 +339,15 @@ def solve_optimization(rows=None, cols=None, matrix=None, assignment=None):
         smax.set((i+1), smax_vec[i])
 
     # caricamento matrice s come parametro del modello
-    s = ampl.getParameter("s")
+    s_matrix = ampl.getParameter("s")
     for i in range(rows):
         for j in range(cols):
-            s.set((i+1, j), matrix[i, j])
-    print(matrix)
+            s_matrix.set((i+1, j), matrix[i, j])
 
     # caricamento assegnamento iniziale come parametro del modello
-    j0 = ampl.getParameter("j0")
+    j0_vec = ampl.getParameter("j0")
     for i in range(rows):
-        j0.set((i+1), curr_assignment[i])
+        j0_vec.set((i+1), curr_assignment[i])
 
     # selezione solver
     ampl.option["solver"] = "cplex"
@@ -377,7 +379,7 @@ def schedule():
     nuovo assegnamento dei dipendeti ai reparti o alla pausa
     """
     global curr_assignment, api
-    if api and curr_assignment is None:
+    if api: # sto usando servizi api
         return solve_optimization(len(employees), len(prediction_matrix[0]), prediction_matrix, initial_positions)
     else:
         return solve_optimization()
