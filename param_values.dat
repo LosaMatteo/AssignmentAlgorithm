@@ -1,33 +1,11 @@
-# Definizione degli insiemi
-set EMPLOYEES := 1 2 3 4 5;
-set DEPARTMENTS := 0 1 2 3;  # 0 = Pausa, 1-3 = reparti lavorativi
 
-# Parametro j0: reparto originario assegnato a ciascun dipendente
-param j0 :=
-  1 1
-  2 1
-  3 2
-  4 2
-  5 3
-;
-
-# Parametro s: livello di stress atteso per il dipendente i se assegnato al reparto j
-# Per il reparto pausa (j=0) i valori sono bassi, mentre per i reparti lavorativi sono più alti.
-param s :  0    1    2    3 :=
-  1    1   65   70   80
-  2    1   82   89   85
-  3    1   54   78   68
-  4    1   41   43   57
-  5    1   86   77   72
-;
 
 # Parametro M: numero minimo di dipendenti richiesti per ciascun reparto
 # Per il reparto pausa (0) non è richiesto un minimo, per cui M[0] = 0.
 param M :=
-  0 0
-  1 1
-  2 1
-  3 1
+  1 2
+  2 3
+  3 2
 ;
 
 # Parametro Smax: livello massimo di stress tollerabile per ciascun dipendente
@@ -37,21 +15,27 @@ param Smax :=
   3 90
   4 90
   5 90
+  6 90
+  7 90
+  8 90
 ;
 
 # Parametro lambda: penalizzazione per il cambiamento di assegnazione (se il dipendente non resta nel reparto j0)
 param lambda := 5;
 
 # Parametro c_pausa: costo addizionale elevato per l'assegnamento al reparto di pausa
-param c_pausa := 50;
+param c_pausa := 70;
 
 # Parametro alpha: competenze del dipendente per ciascun reparto
 # Per il reparto pausa (j=0) tutti i dipendenti hanno competenza (1)
 param alpha:
-         0   1   2   3 :=
-  1      1   1   1   1
-  2      1   1   1   1
-  3      1   1   1   1
-  4      1   1   1   1
-  5      1   1   1   1
+         1   2   3 :=
+  1      1   1   1
+  2      1   1   1
+  3      1   1   1
+  4      1   1   1
+  5      1   1   1
+  6      1   1   1
+  7      1   1   1
+  8      1   1   1
 ;

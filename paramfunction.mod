@@ -1,7 +1,7 @@
 # Insiemi
 set EMPLOYEES;        # Insieme dei dipendenti (i)
 set DEPARTMENTS;       # Insieme dei reparti (j), includendo il reparto "0" per la pausa
-
+set WORK_DEPARTMENTS = { j in DEPARTMENTS : j <> 0 }; # Insieme dei reparti lavorativi (senza la pausa)
 # Parametri
 param j0 {EMPLOYEES};
 # j0[i] rappresenta il reparto originariamente assegnato al dipendente i
@@ -39,7 +39,7 @@ minimize TotalCost:
   + c_pausa * sum {i in EMPLOYEES} x[i,0];
 
 # Vincolo 1: Ogni reparto (eccetto la pausa) deve avere almeno M[j] dipendenti
-subject to DeptCoverage {j in DEPARTMENTS}:
+subject to DeptCoverage {j in WORK_DEPARTMENTS}:
     sum {i in EMPLOYEES} x[i,j] >= M[j];
 
 # Vincolo 2: Ogni dipendente deve essere assegnato ad un solo reparto
@@ -47,10 +47,10 @@ subject to OneAssignment {i in EMPLOYEES}:
     sum {j in DEPARTMENTS} x[i,j] = 1;
 
 # Vincolo 3: Un dipendente può essere assegnato a un reparto solo se possiede le competenze
-subject to Competence {i in EMPLOYEES, j in DEPARTMENTS}:
+subject to Competence {i in EMPLOYEES, j in WORK_DEPARTMENTS}:
     x[i,j] <= alpha[i,j];
 
 # Vincolo 4 (Opzionale): Il livello di stress per i reparti "lavorativi" non deve superare Smax[i]
 subject to StressLimit {i in EMPLOYEES}:
-    sum {j in DEPARTMENTS: j <> 0} s[i,j] * x[i,j] <= Smax[i];
+    sum {j in WORK_DEPARTMENTS: j <> 0} s[i,j] * x[i,j] <= Smax[i];
 
