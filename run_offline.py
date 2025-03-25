@@ -20,25 +20,16 @@ def solve_dat_file(dat_filename):
     # Carica il modello e i dati
     ampl.read("paramfunction.mod")
     ampl.readData(dat_filename)
-    ampl.option["solver"] = "cplex"
-    
-    # Misura il tempo di risoluzione
+    ampl.setOption('solver', 'cplex')
+
     start_time = time.time()
     ampl.solve()
     end_time = time.time()
     solve_time = end_time - start_time
-
-    # Recupera l'output del solver per ottenere il MIP gap
-    solver_output = ampl.getSolverLog()  # Usa getSolverLog per ottenere l'output completo del solver
-    mip_gap = None
-    # Cerca un pattern come "MIP gap: 0.05%" o "MIP gap = 0.05%"
-    match = re.search(r"MIP\s*gap\s*[:=]\s*([\d\.]+)\s*%", solver_output, re.IGNORECASE)
-    if match:
-        mip_gap = float(match.group(1))
-
-    print(f"MIP Gap: {mip_gap * 100:.2f}%")
-    
-    # Recupera il valore dell'obiettivo (TotalCost)
+    # Ottenere il MIP Gap dal log del solver
+    mip_gap = ampl.getObjective("TotalCost").result()
+    print(f"MIP Gap: {mip_gap}")
+    if mip_gap == 'solved': mip_gap = 0
     try:
         obj_value = ampl.getObjective("TotalCost").value()
     except Exception as e:
