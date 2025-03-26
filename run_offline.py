@@ -26,10 +26,19 @@ def solve_dat_file(dat_filename):
     ampl.solve()
     end_time = time.time()
     solve_time = end_time - start_time
-    # Ottenere il MIP Gap dal log del solver
-    mip_gap = ampl.getObjective("TotalCost").result()
-    print(f"MIP Gap: {mip_gap}")
-    if mip_gap == 'solved': mip_gap = 0
+
+    #mip_gap = ampl.getObjective("TotalCost").result()
+    #print(f"MIP Gap: {mip_gap}")
+    #if mip_gap == 'solved': mip_gap = 0
+
+    # Verifica lo stato della soluzione
+    status = ampl.get_value("solve_result")
+    print(f"Stato: {status}")
+
+    # Ottieni il MIP gap
+    mip_gap = ampl.get_value("solve_result_num") # %
+    print(f"MIP Gap: {mip_gap}%") 
+    
     try:
         obj_value = ampl.getObjective("TotalCost").value()
     except Exception as e:
@@ -87,12 +96,12 @@ def main():
     with open("risultati.csv", "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
         # Intestazioni CSV: File, Valore Obiettivo, Tempo di Risoluzione, Nuova Assegnazione, Matrice Soluzione, MIP Gap
-        writer.writerow(["File", "ObjectiveValue", "SolveTime(s)", "NewAssignment", "SolutionMatrix", "MIPGap"])
+        writer.writerow(["File", "ObjectiveValue", "SolveTime(s)", "MIPGap%", "NewAssignment", "SolutionMatrix"])
         for entry in results:
             file_name, obj_value, solve_time, new_assignment, solution_matrix, mip_gap = entry
             new_assignment_str = str(new_assignment.tolist()) if new_assignment is not None else ""
             solution_str = str(solution_matrix.tolist()) if solution_matrix is not None else ""
-            writer.writerow([file_name, obj_value, solve_time, new_assignment_str, solution_str, mip_gap])
+            writer.writerow([file_name, obj_value, solve_time, mip_gap, new_assignment_str, solution_str])
     
     print("Tutti i risultati sono stati scritti in 'risultati.csv'.")
 
