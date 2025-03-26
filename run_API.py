@@ -15,6 +15,7 @@ from flask import Flask, jsonify
 import numpy as np
 from amplpy import AMPL
 from enum import Enum
+from datetime import datetime
 import json
 import requests
 import argparse
@@ -63,7 +64,7 @@ class Employee:
 
 app = Flask(__name__)
 
-# generazione della matrice di stress
+# generazione della matrice di stress senza API
 def generate_stress_matrix(rows, cols, assignment):
     if assignment is not None:
         matrix = np.empty((0, cols))
@@ -160,30 +161,40 @@ def launch_service():
         "Authorization": f"Bearer {token}"
     }
 
+    # orario corrente
+    ora_corrente = datetime.now()
+
+    day = ora_corrente.day
+    month = ora_corrente.month
+    year = ora_corrente.year
+    hour = ora_corrente.hour
+    minute = ora_corrente.minute
+
     # parametri richieste
     params_1_2 = {
-        "day": 18,
-        "month": 2,
-        "year": 2025,
-        "h": 9,
+        "day": f"{day}",
+        "month": f"{month}",
+        "year": f"{year}",
+        "h": f"{hour}",
+        "min": f"{minute}",
         "min": 36
     }
 
     params_3 = {
-        "day": 18,
-        "month": 2,
-        "year": 2025,
-        "h": 9,
-        "min": 45,
-        "numValues": 0
+        "day": f"{day}",
+        "month": f"{month}",
+        "year": f"{year}",
+        "h": f"{hour}",
+        "min": f"{minute}",
+        "numValues": 1
     }
 
     params_4 = {
-        "day": 18,
-        "month": 2,
-        "year": 2025,
-        "h": 11,
-        "min": 00,
+        "day": f"{day}",
+        "month": f"{month}",
+        "year": f"{year}",
+        "h": f"{hour}",
+        "min": f"{minute}",
         "numValues": 1
     }
 
