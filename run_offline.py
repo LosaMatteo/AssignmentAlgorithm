@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 import time
 import csv
 import numpy as np
@@ -103,7 +102,7 @@ def main():
             new_assignment_str = str(new_assignment.tolist()) if new_assignment is not None else ""
             solution_str = str(solution_matrix.tolist()) if solution_matrix is not None else ""
             writer.writerow([file_name, state, obj_value, solve_time, mip_gap, new_assignment_str, solution_str])
-            print("Tutti i risultati sono stati scritti in 'risultati.csv'.")
+            print("Risultati salvati nel file 'risultati.csv'.")
 
     with open('dati.txt', 'w') as file:
         file.write('')
