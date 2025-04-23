@@ -2,78 +2,108 @@
 import time
 import csv
 import numpy as np
-import re
 from amplpy import AMPL
 
 def solve_dat_file(dat_filename):
-    """
-    Legge il modello AMPL (paramfunction.mod) e i dati dal file .dat specificato,
-    esegue il solver (CPLEX) e raccoglie le metriche:
-      - valore dell'obiettivo (TotalCost)
-      - matrice soluzione per la variabile decisionale x
-      - nuovo vettore di assegnazione (calcolato come la posizione in cui compare il valore 1)
-      - tempo di risoluzione
-      - MIP gap (in percentuale) estratto dall'output del solver
-    Restituisce una tupla con (nome_file, obj_value, solve_time, new_assignment, solution_matrix, mip_gap)
-    """
     ampl = AMPL()
-    # Carica il modello e i dati
     ampl.read("paramfunction.mod")
     ampl.readData(dat_filename)
     ampl.setOption('solver', 'cplex')
+    ampl.setOption('cplex_options', 'timelimit=600')
 
     start_time = time.time()
     ampl.solve()
     end_time = time.time()
     solve_time = end_time - start_time
 
-    #mip_gap = ampl.getObjective("TotalCost").result()
-    #print(f"MIP Gap: {mip_gap}")
-    #if mip_gap == 'solved': mip_gap = 0
-
-    # Verifica lo stato della soluzione
     status = ampl.get_value("solve_result")
     print(f"Stato: {status}")
 
-    # Ottieni il MIP gap
-    mip_gap = ampl.get_value("solve_result_num") # %
-    print(f"MIP Gap: {mip_gap}%") 
-    
+    mip_gap = ampl.get_value("solve_result_num")
+    print(f"MIP Gap: {mip_gap}%")
+
     try:
         obj_value = ampl.getObjective("TotalCost").value()
     except Exception as e:
         print(f"Errore nel recupero del valore dell'obiettivo: {e}")
         obj_value = None
 
-    # Recupera i set EMPLOYEES e DEPARTMENTS definiti nel modello
     try:
         employees = list(ampl.getSet("EMPLOYEES").getValues())
         departments = list(ampl.getSet("DEPARTMENTS").getValues())
     except Exception as e:
         print(f"Errore nel recupero dei set: {e}")
         employees, departments = [], []
-    
+
     rows = len(employees)
     cols = len(departments)
 
-    # Costruisce la matrice soluzione a partire dalla variabile x
+    # Costruzione della matrice x e del vettore j0 (output)
     solution = np.zeros((rows, cols))
+    j0_output = []
     try:
         x_var = ampl.getVariable("x")
         for i in range(rows):
+            found = False
             for j in range(cols):
-                solution[i, j] = x_var.get(i + 1, j).value()
+                val = x_var.get(i + 1, j).value()
+                solution[i, j] = val
+                if not found and val == 1:
+                    j0_output.append(j)
+                    found = True
+            if not found:
+                j0_output.append(-1)
     except Exception as e:
-        print(f"Errore durante la costruzione della matrice soluzione: {e}")
+        print(f"Errore durante il recupero della soluzione x o del vettore j0 (output): {e}")
+        solution = None
+        j0_output = [-1] * rows
 
-    # Calcola il nuovo vettore di assegnazione:
-    check = (solution == 1).any(axis=1)
-    new_assignment = np.where(check, np.argmax(solution == 1, axis=1), 0)
+    # Lettura del vettore j0 di input
+    try:
+        j0_param = ampl.getParameter("j0")
+        j0_input = [int(j0_param.get(i + 1)) for i in range(rows)]
+    except Exception as e:
+        print(f"Errore nel recupero del parametro 'j0' dal file .dat: {e}")
+        j0_input = [-1] * rows
 
-    return dat_filename, obj_value, solve_time, new_assignment, solution, mip_gap
+    # Calcolo delle nuove metriche:
+    num_pausa = sum(1 for j in j0_output if j == 0)
+    num_trasferimenti = sum(
+        1 for old, new in zip(j0_input, j0_output)
+        if old > 0 and new > 0 and old != new
+        )
+
+
+    try:
+        onpause = ampl.getParameter("onpause").value()
+    except Exception as e:
+        print(f"Errore nel recupero di 'onpause': {e}")
+        onpause = None
+
+    try:
+        tStart = ampl.getParameter("tStart").value()
+    except Exception as e:
+        print(f"Errore nel recupero di 'tStart': {e}")
+        tStart = None
+
+    try:
+        T_param = ampl.getParameter("T")
+        T_size = cols - 1
+        T_matrix = np.zeros((T_size, T_size))
+        for i in range(T_size):
+            for j in range(T_size):
+                T_matrix[i, j] = T_param.get(i + 1, j + 1)
+    except Exception as e:
+        print(f"Errore nel recupero della matrice T: {e}")
+        T_matrix = None
+
+    return (
+        dat_filename, obj_value, solve_time, solution,
+        j0_output, j0_input, mip_gap, onpause, tStart, T_matrix,
+        num_pausa, num_trasferimenti
+    )
 
 def main():
-    # Legge il file "dati.txt" che contiene (uno per riga) i nomi dei file .dat da processare
     try:
         with open("dati.txt", "r", encoding="utf-8") as f:
             dat_files = [line.strip() for line in f if line.strip()]
@@ -87,22 +117,39 @@ def main():
         try:
             res = solve_dat_file(dat_file)
             results.append(res)
-            print(f"File {dat_file} processato. Obiettivo: {res[1]}, Tempo: {res[2]:.2f}s, MIP Gap: {res[5]}")
+            print(f"File {dat_file} processato. Obiettivo: {res[1]}, Tempo: {res[2]:.2f}s, MIP Gap: {res[6]}")
         except Exception as e:
             print(f"Errore durante l'elaborazione di {dat_file}: {e}")
-            results.append((dat_file, "Error", None, None, None, None))
-    
-    # Scrive i risultati in "risultati.csv"
+            results.append((dat_file, "Error", None, None, None, None, None, None, None, None, None, None))
+
     with open("risultati.csv", "w", newline="", encoding="utf-8") as csvfile:
         writer = csv.writer(csvfile)
-        # Intestazioni CSV: File, Valore Obiettivo, Tempo di Risoluzione, Nuova Assegnazione, Matrice Soluzione, MIP Gap
-        writer.writerow(["File", "ObjectiveValue", "SolveTime(s)", "MIPGap%", "NewAssignment", "SolutionMatrix"])
+        writer.writerow([
+            "File", "ObjectiveValue", "SolveTime(s)", "MIPGap%", 
+            "SolutionMatrix", "j0_Output", "j0_Input", 
+            "OnPause", "tStart", "TMatrix",
+            "NumInPause", "NumTransfers"
+        ])
+
         for entry in results:
-            file_name, obj_value, solve_time, new_assignment, solution_matrix, mip_gap = entry
-            new_assignment_str = str(new_assignment.tolist()) if new_assignment is not None else ""
+            (
+                file_name, obj_value, solve_time, solution_matrix,
+                j0_output, j0_input, mip_gap, onpause, tStart, T_matrix,
+                num_pausa, num_trasferimenti
+            ) = entry
+
             solution_str = str(solution_matrix.tolist()) if solution_matrix is not None else ""
-            writer.writerow([file_name, obj_value, solve_time, mip_gap, new_assignment_str, solution_str])
-    
+            j0_out_str = str(j0_output) if j0_output is not None else ""
+            j0_in_str = str(j0_input) if j0_input is not None else ""
+            T_matrix_str = str(T_matrix.tolist()) if T_matrix is not None else ""
+
+            writer.writerow([
+                file_name, obj_value, solve_time, mip_gap,
+                solution_str, j0_out_str, j0_in_str,
+                onpause, tStart, T_matrix_str,
+                num_pausa, num_trasferimenti
+            ])
+
     print("Tutti i risultati sono stati scritti in 'risultati.csv'.")
 
 if __name__ == '__main__':
