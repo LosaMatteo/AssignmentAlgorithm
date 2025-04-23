@@ -123,7 +123,7 @@ def main():
             T_matrix[i][j] = valore
             T_matrix[j][i] = valore  # Mantieni la simmetria
     try:
-        tStart = int(input(f"Inserisci il timestamp attuale del turno. (tEnd = {tEnd})"))
+        tStart = int(input(f"Inserisci il timestamp attuale del turno. (tEnd = {tEnd}): "))
     except ValueError:
         print("Valore non valido. Inserisci un numero intero.")
 
