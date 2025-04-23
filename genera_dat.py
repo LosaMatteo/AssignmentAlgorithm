@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 import os
 import random
+import numpy as np
 
 def main():
+    # Costanti definite nel codice
+    epsilon = 0.001
+    tEnd = 28800
+    onpause = 70
     # Input numero di dipendenti e reparti lavorativi (il reparto "pausa" è sempre 0)
     n = int(input("Numero di dipendenti: "))
     m = int(input("Numero di reparti lavorativi (escludendo il reparto pausa): "))
@@ -99,9 +104,28 @@ def main():
                 row.append(val)
         alpha_matrix.append(row)
 
-    # Costanti definite nel codice
-    lambda_val = 5
-    c_pausa = 70
+    T_matrix = np.zeros((total_depts - 1, total_depts - 1), dtype=int)
+
+    risposta = input("Vuoi inserire manualmente i coefficienti? (s/n): ").strip().lower()
+
+    for i in range(total_depts - 1):
+        for j in range(i + 1, total_depts - 1):
+            if risposta == 's':
+                while True:
+                    try:
+                        valore = int(input(f"Inserisci il valore per la posizione ({i+1},{j+1}): "))
+                        break
+                    except ValueError:
+                        print("Valore non valido. Inserisci un numero intero.")
+            else:
+                valore = random.randint(5, 10)
+
+            T_matrix[i][j] = valore
+            T_matrix[j][i] = valore  # Mantieni la simmetria
+    try:
+        tStart = int(input(f"Inserisci il timestamp attuale del turno. (tEnd = {tEnd})"))
+    except ValueError:
+        print("Valore non valido. Inserisci un numero intero.")
 
     # Chiedi il nome del file .dat da generare
     dat_filename = input("Inserisci il nome del file .dat da generare (es. istanza1.dat): ").strip()
@@ -137,7 +161,7 @@ def main():
         # Parametro M (minimi per reparto)
         f.write("param M :=\n")
         # Per il reparto pausa, M[0] deve essere 0
-        f.write("0 0\n")
+        #----f.write("0 0\n")
         for j in range(1, total_depts):
             f.write(f"{j} {M[j]}\n")
         f.write(";\n\n")
@@ -146,8 +170,14 @@ def main():
         for i in range(1, n + 1):
             f.write(f"{i} {Smax[i-1]}\n")
         f.write(";\n\n")
-        # Parametro lambda
-        f.write(f"param lambda := {lambda_val};\n\n")
+        # Parametro epsilon
+        f.write(f"param epsilon := {epsilon};\n\n")
+        # Parametro tStart
+        f.write(f"param tStart := {tStart};\n\n")
+        # Parametro tEnd
+        f.write(f"param tEnd := {tEnd};\n\n")
+        # Parametro onpause
+        f.write(f"param onpause := {onpause};\n\n")
         # Parametro alpha (matrice di competenze)
         f.write("param alpha :")
         for j in range(0, total_depts):
@@ -159,8 +189,17 @@ def main():
                 f.write(f"{alpha_matrix[i][j]} ")
             f.write("\n")
         f.write(";\n\n")
-        # Parametro c_pausa
-        f.write(f"param c_pausa := {c_pausa};\n")
+        f.write("param T :")
+        for j in range(1, total_depts):  # Colonne intestate da 1 a total_depts - 1
+            f.write(f" {j}")
+        f.write(" :=\n")
+
+        for i in range(1, total_depts):  # Righe intestate da 1 a total_depts - 1
+            f.write(f"{i} ")
+            for j in range(1, total_depts):
+                f.write(f"{T_matrix[i-1][j-1]} ")
+            f.write("\n")
+        f.write(";\n\n")
     
     # Aggiunge il nome del file .dat generato in append a "dati.dat"
     with open("dati.txt", "a", encoding="utf-8") as f:
