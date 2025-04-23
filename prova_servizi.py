@@ -8,6 +8,8 @@ Funzionalità principali:
 2. Risolve un problema di ottimizzazione per determinare l'assegnazione ottimale.
 3. Fornisce un endpoint API (`/schedule`) che restituisce l'assegnazione aggiornata in formato JSON.
 
+La flag --api permette di ricavare dipendenti, reparti e livelli di stress dai API remote
+
 L'assegnazione corrente viene mantenuta come partenza per la chiamata successiva.
 """
 
@@ -15,6 +17,7 @@ from flask import Flask, jsonify
 import numpy as np
 from amplpy import AMPL
 from enum import Enum
+from datetime import datetime
 import json
 import requests
 import argparse
@@ -55,6 +58,9 @@ class Employee:
         self.tm_fine = turno.get("tmFine")
         # dizionario per previsioni dello stress per ogni reparto
         self.predicted_stresses = {}
+        
+    def set_pausa(self):
+        self.reparto = "PAUSE"
     
     def __repr__(self):
         return (f"Employee(id_smartwatch={self.id_smartwatch}, id_turno={self.id_turno}, "
@@ -63,7 +69,7 @@ class Employee:
 
 app = Flask(__name__)
 
-# generazione della matrice di stress
+# generazione della matrice di stress senza API
 def generate_stress_matrix(rows, cols, assignment):
     if assignment is not None:
         matrix = np.empty((0, cols))
@@ -98,7 +104,7 @@ def build_employee_list(response):
     employee_list = []
     for item in response[0]:
         id_smartwatch = item.get("idSmartwatch")
-        turno = item.get("turno", {})
+        turno = item.get("turno", {})            
         # Recuperiamo lo stress misurato dal device
         key = f"dev-sim-{id_smartwatch}"
         stress = None
@@ -107,6 +113,8 @@ def build_employee_list(response):
             if measurements:
                 stress = measurements[-1].get("value")
         employee = Employee(id_smartwatch, turno, stress)
+        if turno.get("riposo"):
+            employee.set_pausa()
         employee_list.append(employee)
     
     # Calcolo della matrice di previsione
@@ -160,30 +168,39 @@ def launch_service():
         "Authorization": f"Bearer {token}"
     }
 
+    # orario corrente
+    ora_corrente = datetime.now()
+
+    day = ora_corrente.day
+    month = ora_corrente.month
+    year = ora_corrente.year
+    hour = ora_corrente.hour
+    minute = ora_corrente.minute
+
     # parametri richieste
     params_1_2 = {
-        "day": 18,
-        "month": 2,
-        "year": 2025,
-        "h": 9,
-        "min": 36
+        "day": f"{day}",
+        "month": f"{month}",
+        "year": f"{year}",
+        "h": f"{hour}",
+        "min": f"{minute}"
     }
 
     params_3 = {
-        "day": 18,
-        "month": 2,
-        "year": 2025,
-        "h": 9,
-        "min": 45,
-        "numValues": 0
+        "day": f"{day}",
+        "month": f"{month}",
+        "year": f"{year}",
+        "h": f"{hour}",
+        "min": f"{minute}",
+        "numValues": 1
     }
 
     params_4 = {
-        "day": 18,
-        "month": 2,
-        "year": 2025,
-        "h": 11,
-        "min": 00,
+        "day": f"{day}",
+        "month": f"{month}",
+        "year": f"{year}",
+        "h": f"{hour}",
+        "min": f"{minute}",
         "numValues": 1
     }
 
@@ -192,17 +209,19 @@ def launch_service():
         match elem.value:
             case 0:
                 response_reparti = requests.get(url, headers=headers)
+              #  print(response_reparti.json())
             case 1:
                 response_meanstr = requests.get(url, params=params_1_2, headers=headers)
                # print(response_meanstr.json())
             case 2:
                 response_currsched = requests.get(url, params=params_1_2, headers=headers)
-              # print(response_currsched.json())
+               # print(response_currsched.json())
             case 3:
                 response_currstr = requests.post(url, params=params_3, headers=headers)
-              # print(response_currstr.json())
+              #  print(response_currstr.json())
             case 4:
                 response_predstr = requests.post(url, params=params_4, headers=headers)
+              #  print(response_predstr.json())
 
     return response_currsched.json(), response_currstr.json(), response_meanstr.json()
 
@@ -240,9 +259,8 @@ def build_prediction_matrix_and_initial_positions(employees):
     
     initial_positions = []
     for emp in employees:
-        # Confrontiamo in uppercase per sicurezza
         pos = Task[emp.reparto].value
-        initial_positions.append(pos)
+        initial_positions.append(pos-1)
     
     # Stampa della matrice e del vettore delle posizioni iniziali
     """
@@ -301,7 +319,7 @@ def solve_optimization(rows=None, cols=None, matrix=None, assignment=None):
     ampl = AMPL()
 
     # lettura modello
-    ampl.read("paramfunction.mod")
+    ampl.read("model.mod")
     # lettura parametri
     ampl.readData("param_values.dat")
 
