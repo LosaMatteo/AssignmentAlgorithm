@@ -35,7 +35,7 @@ var x {EMPLOYEES, DEPARTMENTS} binary;
 # Funzione Obiettivo: Minimizzare il costo complessivo (stress + penalità per cambi + penalità per la pausa)
 minimize TotalCost:
     sum {i in EMPLOYEES, j in WORK_DEPARTMENTS} s[i,j] * x[i,j]
-  + 1 / (1 - (tStart / tEnd) + epsilon) * sum {i in EMPLOYEES} (sum {j in WORK_DEPARTMENTS} T[j0[i], j] * x[i,j] )
+  + 1 / (1 - (tStart / tEnd) + epsilon) * sum {i in EMPLOYEES} (sum {j in WORK_DEPARTMENTS: j0[i] <> 0} T[j0[i], j] * x[i,j] )
   + onpause * sum {i in EMPLOYEES} x[i,0];
   
 
