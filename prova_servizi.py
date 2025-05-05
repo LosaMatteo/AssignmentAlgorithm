@@ -99,8 +99,9 @@ def build_employee_list(response):
       list: Lista di istanze Employee con l'attributo 'predicted_stresses' valorizzato.
     """
     # Creazione di un dizionario {idReparto: stress_medio}
-    department_stress_dict = {dep["idReparto"]: dep["stress"] for dep in response[2]}
-    
+    department_stress_dict = {dep["idReparto"]: dep["stress"] for dep in response[3]}
+    print(department_stress_dict)
+    print("ao")
     employee_list = []
     for item in response[0]:
         id_smartwatch = item.get("idSmartwatch")
@@ -223,7 +224,7 @@ def launch_service():
                 response_predstr = requests.post(url, params=params_4, headers=headers)
               #  print(response_predstr.json())
 
-    return response_currsched.json(), response_currstr.json(), response_meanstr.json()
+    return response_currsched.json(), response_currstr.json(), response_meanstr.json(), response_predstr.json()
 
 def build_prediction_matrix_and_initial_positions(employees):
     """

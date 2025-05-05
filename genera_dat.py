@@ -4,6 +4,9 @@ import random
 import numpy as np
 
 def main():
+    SEED = 42
+    print(f"Attenzione: presente un random_seed impostato a {SEED}.")
+    random.seed(SEED)
     # Costanti definite nel codice
     epsilon = 0.001
     tEnd = 28800
@@ -14,16 +17,17 @@ def main():
     total_depts = m + 1  # includiamo il reparto 0 per la pausa
 
     # Input assegnazione iniziale per ogni dipendente (j0)
-    same_j0 = input("Vuoi impostare la stessa posizione iniziale per tutti i dipendenti? (S/N): ").strip().upper()
+    same_j0 = input("Vuoi impostare la stessa posizione iniziale per tutti i dipendenti o distribuirli in maniera randomica escludendo la pausa?  (S/N/R): ").strip().upper()
     j0 = []
     if same_j0 == 'S':
         j0_value = int(input("Inserisci la posizione iniziale (0 per pausa, oppure 1..{}): ".format(m)))
         j0 = [j0_value] * n
-    else:
+    elif same_j0 == "N":
         print("Inserisci la posizione iniziale per ciascun dipendente (0 per pausa, oppure 1..{}):".format(m))
         for i in range(n):
             val = int(input(f"Dipendente {i+1}: "))
             j0.append(val)
+    elif same_j0 == "R": j0 = [random.randint(1, m) for _ in range(n)]
 
     # Input minimo numero di dipendenti per ogni reparto (M)
     same_M = input("Vuoi impostare lo stesso numero minimo di dipendenti per ogni reparto lavorativo? (S/N): ").strip().upper()
