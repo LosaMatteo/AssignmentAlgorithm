@@ -18,15 +18,8 @@ param Smax {EMPLOYEES};
 # Smax[i] è il livello massimo di stress tollerabile per il dipendente i
 
 param alpha {EMPLOYEES, DEPARTMENTS};
-# alpha[i,j] = 1 se il dipendente i possiede le competenze per lavorare nel reparto j, 0 altrimenti.
-# Assicurarsi che alpha[i,0]=1 per ogni i (ogni dipendente può essere messo in pausa).
-
-# Nuovo parametro per penalizzare l’assegnamento alla pausa
 param onpause;
-# c_pausa rappresenta il costo addizionale (elevato) se un dipendente viene assegnato al reparto pausa
-param tStart;
-param tEnd;
-param epsilon;
+param k;
 param T {WORK_DEPARTMENTS, WORK_DEPARTMENTS};
 # Variabili decisionali
 var x {EMPLOYEES, DEPARTMENTS} binary;
@@ -35,7 +28,7 @@ var x {EMPLOYEES, DEPARTMENTS} binary;
 # Funzione Obiettivo: Minimizzare il costo complessivo (stress + penalità per cambi + penalità per la pausa)
 minimize TotalCost:
     sum {i in EMPLOYEES, j in WORK_DEPARTMENTS} s[i,j] * x[i,j]
-  + 1 / (1 - (tStart / tEnd) + epsilon) * sum {i in EMPLOYEES} (sum {j in WORK_DEPARTMENTS: j0[i] <> 0} T[j0[i], j] * x[i,j] )
+  + k * sum {i in EMPLOYEES} (sum {j in WORK_DEPARTMENTS: j0[i] <> 0} T[j0[i], j] * x[i,j] )
   + onpause * sum {i in EMPLOYEES} x[i,0];
   
 
