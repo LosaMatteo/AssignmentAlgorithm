@@ -18,6 +18,7 @@ Funzionalita' principali:
 
 from __future__ import annotations
 
+import os
 import json
 import logging
 import sys
@@ -38,10 +39,15 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
-# ENUMS per task e servizi e orari di inizio turno
+# ENUMS per task e servizi e costanti
 # ---------------------------------------------------------------------------
 
-shift_hours = [0, 8, 16]
+DEFAULT_LOCATION = "CAPANNONE NUOVO"
+SHIFT_HOURS = [0, 8, 16]
+ORDERED_DEPT_NAMES = ["PRODUZIONE", "FORNI", "CONFEZIONAMENTO"]
+MODEL_FILE = "model.mod"
+DATA_FILE = "param_values.dat"
+SERVICE_FILE = "service.json"
 
 class Task(Enum):
     PAUSE = 1
@@ -93,7 +99,7 @@ class Employee:
 
     def _set_pausa(self) -> None:
         """Imposta la pausa a un dipendente"""
-        self.reparto = "PAUSE"
+        self.reparto = Task.PAUSE.name
         self.id_reparto = None
 
     def __repr__(self) -> str:
@@ -112,8 +118,22 @@ class Employee:
 
 app = Flask(__name__)
 used_extimated_stress = False # flag per segnalare l'utilizzo di valori di stress approssimativi
-location_default = "CAPANNONE NUOVO"
-curr_assignment: List[int] | None = None # assegnamento corrente dipendente - reparto
+
+def check_files_exist() -> None:
+    """Funzione che verifica la presenza dei file necessari per il funzionamento
+       del programma, in particolare i file del modello (.mod), valori dei paramwtri (.dat)
+       e il file per l'utilizzo dei servizi (.json). Termina l'applicazione se i file non
+       vengono trovati.
+    """
+    files_to_check = [MODEL_FILE, DATA_FILE, SERVICE_FILE]
+    missing_files = []
+    for f_path in files_to_check:
+        if not os.path.isfile(f_path):
+            missing_files.append(f_path)
+
+    if missing_files:
+        logger.critical(f"File critici mancanti: {', '.join(missing_files)}. L'applicazione non puo' avviarsi.")
+        sys.exit(1)
 
 def launch_service() -> Tuple[Any, Any, Any, Any]:
     """Gestisce la chiamata ai servizi API e la lettura delle rispettive risposte,
@@ -123,13 +143,13 @@ def launch_service() -> Tuple[Any, Any, Any, Any]:
     Se non e' possibile ricevere una risposta dai servizi, viene segnalato l'errore.
 
     :return: Insieme delle risposte dei servizi API.
-    :rtype: Tuple[Service]
+    :rtype: Tuple[Dict[Service]]
     """
     try:
-        with open("service.json", "r", encoding="utf-8") as f:
+        with open(SERVICE_FILE, "r", encoding="utf-8") as f:
             cfg = json.load(f)
     except Exception as e:
-        logger.error("Errore lettura service.json: %s", e)
+        logger.error("Error while reading service.json: %s", e)
         raise
 
     headers = {
@@ -163,7 +183,7 @@ def launch_service() -> Tuple[Any, Any, Any, Any]:
             responses[svc] = resp.json()
 
         except Exception as e:
-            logger.error("Errore API %s a %s: %s", svc.name, url, e)
+            logger.error("API error %s in %s: %s", svc.name, url, e)
 
     return (
         responses[Service.CURR_SCHED],
@@ -179,9 +199,12 @@ def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
     il programma termina. Il programma terminera' anche se la lista finale
     dei Se sono mancanti dei dati riguardanti lo stress, questi verranno stimati
     per poter proseguire con la soluzione del problema.
+    
+    NOTA: Non viene gestito il caso in cui, nell'assegnazioen corrente, un cliente sia
+          in pausa perche' non ancora previsto dai servizi API utilizzati.
 
     :param resps: Risposte dei servizi API.
-    :type resps: Tuple[Service]
+    :type resps: Tuple[Dict[Service]]
     :raises ValueError: Se la lista 'mean_str' o la lista 'emp_list' e' vuota
                         o se c'è' un'inconsistenza nell'id del device.
     :return: Insieme dei dipendenti presenti.
@@ -208,7 +231,7 @@ def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
                 used_extimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
                 stress_val = dept_avg.get(turno.get("idReparto"))
         else:
-            raise RuntimeError("Unexpected mismatch in device ids. Check API response.")
+            raise ValueError("Unexpected mismatch in device ids. Check API response.")
         emp = Employee(sw_id, turno, stress_val) # crea l'istanza del dipendente
         emp_list.append(emp)
     if not emp_list:
@@ -235,15 +258,16 @@ def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict) -> None
     """
     global used_extimated_stress
     curr_avg = dept_str.get(emp.id_reparto) # stress medio del reparto del dipendente
-    if not curr_avg:
-        raise ValueError(f"Empty average stress value for department {emp.id_reparto}")
+    if not curr_avg or curr_avg == 0:
+        raise ValueError(f"Invalid average stress value for department {emp.id_reparto}")
     # scarto dello stress del dipendete rispetto alla media del reparto
     rel_diff = (emp.stress - curr_avg) / curr_avg 
     for rid, avg in dept_str.items():
         # Se il reparto e' quello in cui si trova attualmente il dipendente
         # provo a utilizzare lo stress predetto fornito dal servizio API.
         # Altrimenti, se il reparto d' diverso o non e' possibile ottenere
-        # lo stress predetto, questio viene stimato attraverso lo scarto relativo dello stress.
+        # lo stress predetto, questo viene stimato imputando lo scarto relativo dello stress
+        # anche agli altri reparti
         if rid == emp.id_reparto:
             key = f"dev-sim-{emp.id_smartwatch}"
             if key in pred_str:
@@ -252,7 +276,7 @@ def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict) -> None
                     stress = readings[-1].get("value")
                     emp.predicted_stresses[rid] = stress
                 else:
-                    used_extimated_stress = True
+                    used_extimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
                     emp.predicted_stresses[rid] = avg * (1 + (rel_diff or 0))
             else:
                 raise ValueError("Unexpected mismatch in device ids. Check API response.")
@@ -273,12 +297,11 @@ def build_prediction_matrix_and_initial_positions(
     :rtype Tuple[np.ndarray, List[int]
     """
     name_to_id = {e.reparto.upper(): e.id_reparto for e in emp_list if e.reparto}
-    ordered_names = ["PRODUZIONE", "FORNI", "CONFEZIONAMENTO"]
-    ordered_ids: List[Optional[int]] = [name_to_id.get(n) for n in ordered_names]
+    ordered_ids: List[Optional[int]] = [name_to_id.get(n) for n in ORDERED_DEPT_NAMES]
     matrix: List[List[float]] = []
     for emp in emp_list:
         # legge lo stress predetto del dipendente per ogni reparto
-        rep_values = [emp.predicted_stresses.get(rid, 50.0) if rid is not None else 50.0 for rid in ordered_ids]
+        rep_values = [emp.predicted_stresses.get(rid, emp.stress) if rid is not None else emp.stress for rid in ordered_ids]
         # lo stress predetto per la pausa e' il 60% dello stress medio del dipendente
         pause_val = 0.6 * float(np.mean(rep_values))
         matrix.append([pause_val] + rep_values)
@@ -309,7 +332,7 @@ def build_schedule_response(sol: np.ndarray, reason: str | None) -> Any:
         else:
             assignments.append({
                 "id": str(idx),
-                "location": location_default,
+                "location": DEFAULT_LOCATION,
                 "task": task_name
             })
     status_msg = "success"
@@ -331,16 +354,16 @@ def get_timestamps() -> Tuple[int, int]:
     :rtype: Tuple[int, int]
     """
     now_secs = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second
-    for idx in range(len(shift_hours)):
-        start_h = shift_hours[idx] * 3600
-        end_h = (shift_hours[idx+1] * 3600) if idx + 1 < len(shift_hours) else 24*3600
+    for idx in range(len(SHIFT_HOURS)):
+        start_h = SHIFT_HOURS[idx] * 3600
+        end_h = (SHIFT_HOURS[idx+1] * 3600) if idx + 1 < len(SHIFT_HOURS) else 24*3600
         if start_h <= now_secs < end_h:
             shift_start_secs = start_h
             shift_end_secs = end_h
             break
     return now_secs - shift_start_secs, shift_end_secs - shift_start_secs # type: ignore
 
-def get_k(tStart, tEnd) -> float:
+def get_k(tStart: int, tEnd: int) -> float:
     """Calcola il valore del parametro del modello che tiene conto dell'istante
        in cui e' stata effettuata la chiamata al servizio rispetto alla fine del turno.
 
@@ -355,7 +378,7 @@ def get_k(tStart, tEnd) -> float:
     """
     epsilon = 0.0001
     if tEnd != 0: return 1 / (1 - (tStart / tEnd) + epsilon)
-    return 1
+    raise ValueError("Invalid value for variable tEnd")
 
 def solve_optimization(
     matrix: np.ndarray,
@@ -376,25 +399,24 @@ def solve_optimization(
     :return: Struttura JSON da restituire al client.
     :rtype: Any
     """    
-    global curr_assignment, used_extimated_stress
+    global used_extimated_stress
     msg = None
-    if not matrix or not assignment:
-        raise ValueError("Unexpected error. Either sress matrix or current assignment is none")
+    if not matrix.size or not assignment:
+        logger.error("Unexpected error. Either sress matrix or current assignment is none")
+        return jsonify({
+            "assignments": [],
+            "pauses": [],
+            "status": "error: Dati di input non validi",
+            "reason": "La matrice di stress o l'assegnamento corrente sono vuoti."
+        }), 500
     try:
-        try:
-            ampl = AMPL()
-            ampl.read("model.mod")
-            # lettura dei parametri necessari dal file DAT
-            ampl.readData("param_values.dat")
-            logger.info("Parametri caricati da param_values.dat")
-        except Exception as exc:
-            last_status = f"error: caricamento parametri AMPL - {exc}"
-            logger.exception(last_status)
-            sys.exit(1)
+        ampl = AMPL()
+        ampl.read(MODEL_FILE)
+        # lettura dei parametri necessari dal file DAT
+        ampl.readData(DATA_FILE)
         if used_extimated_stress:
             msg = "Missing values"
             logger.info(msg)
-        curr_assignment = assignment
         rows, cols = matrix.shape
         # caricamento parametri del modello
         emp_idx = list(range(1, rows + 1))
@@ -417,45 +439,30 @@ def solve_optimization(
             obj_value = ampl.getObjective("TotalCost").value()
             if obj_value == 0:
                 # se l’obiettivo e' zero, e' un caso anomalo
-                raise RuntimeError(f"Objective value is zero: {obj_value}")
+                logger.warning(f"Objective value is zero: {obj_value}")
             sol = np.zeros_like(matrix) # prepara la soluzione da mostrare
             for i in emp_idx:
                 for j in dept_idx:
                     sol[i-1, j] = ampl.getVariable("x").get(i, j).value()
-            curr_assignment = sol.argmax(axis=1).tolist()
-            """
-            print(matrix)
-            print(assignment)
-            print(curr_assignment)
-            print(get_k(tStart_val, tEnd_val))
-            print(tStart_val)
-            print(tEnd_val)
-            """
+
             return build_schedule_response(sol, msg)
 
         except Exception as e:
-            logger.exception("Errore generico AMPL")
+            logger.exception("Error while resolving")
             return jsonify({
                 "assignments": [],
                 "pauses": [],
                 "status": f"error: {e}",
-                "reason": "Errore generico AMPL"
+                "reason": "Errore durante la risoluzione"
             }), 500
-    except ValueError as e:
-        logger.exception("Errore in solve_optimization")
-        return jsonify({
-            "assignments": [],
-            "pauses": [],
-            "status": f"error: {e}",
-            "reason": "Non e' stato possibile generare randomicamente la matrice: nessun dato nell'API"
-        }), 500
+        
     except Exception as e:
-        logger.exception("Errore in solve_optimization")
+        logger.exception("Unexpected error in solve_optimization")
         return jsonify({
             "assignments": [],
             "pauses": [],
             "status": f"error: {e}",
-            "reason": "Errore generico nella risoluzione"
+            "reason": "Errore imprevisto durante la risoluzione"
         }), 500
 
 # ---------------------------------------------------------------------------
@@ -465,19 +472,44 @@ def solve_optimization(
 @app.route("/schedule", methods=["GET"])
 def schedule_api():
     try:
-        resps = launch_service() # chiamata ai servizi
-        emp_list = build_employee_list(resps) # ottiene lista dei dipendenti
-        # ottiene matrice dello stress predetto e vettore degli assegnamenti attuale
+        resps = launch_service()
+        emp_list = build_employee_list(resps)
         pred_matrix, init_pos = build_prediction_matrix_and_initial_positions(emp_list)
-        # risolve il problema di ottimizzazione e restituisce la risposta al client
         return solve_optimization(pred_matrix, init_pos)
-    except Exception:
-        logger.exception("Errore avvio servizio")
-        sys.exit(1)
+    
+    except ValueError as ve:
+        logger.error(f"Input data error: {ve}")
+
+        return jsonify({
+            "assignments": [],
+            "pauses": [],
+            "status": "error: Dati di input invalidi o problema con API esterne",
+            "reason": str(ve)
+        }), 500
+        
+    except RuntimeError as re:
+        logger.error(f"Runtime error while resolving: {re}")
+        
+        return jsonify({
+            "assignments": [],
+            "pauses": [],
+            "status": "error: Problema durante la risoluzione del problema",
+            "reason": str(re)
+        }), 500
+    except Exception as e:
+        logger.exception(f"Unhandled error in endpoint /schedule: {e}")
+
+        return jsonify({
+            "assignments": [],
+            "pauses": [],
+            "status": "error: Errore interno del server",
+            "reason": "Si è verificato un errore imprevisto durante l'elaborazione della richiesta."
+        }), 500
 
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    check_files_exist()
     app.run(debug=True)
