@@ -113,11 +113,10 @@ class Employee:
         return cls._count
 
 # ---------------------------------------------------------------------------
-# APP FLASK e variabili globali
+# APP FLASK
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__)
-used_extimated_stress = False # flag per segnalare l'utilizzo di valori di stress approssimativi
 
 def check_files_exist() -> None:
     """Funzione che verifica la presenza dei file necessari per il funzionamento
@@ -143,7 +142,7 @@ def launch_service() -> Tuple[Any, Any, Any, Any]:
     Se non e' possibile ricevere una risposta dai servizi, viene segnalato l'errore.
 
     :return: Insieme delle risposte dei servizi API.
-    :rtype: Tuple[Dict[Service]]
+    :rtype: Tuple[List[Dict[str, Any]]
     """
     try:
         with open(SERVICE_FILE, "r", encoding="utf-8") as f:
@@ -162,7 +161,7 @@ def launch_service() -> Tuple[Any, Any, Any, Any]:
               "h": now.hour, "min": now.minute}
     params_num = {**params, "numValues": 1}
     responses: Dict[Service, Any] = {}
-    for svc in Service:
+    for svc in Service: # da ricontrollare se cambiano i servizi o il loro ordine nel file json
         _, url = list(cfg["url"].items())[svc.value]
         try:
             if svc in {Service.REPARTI, Service.MEAN_STR, Service.CURR_SCHED}:
@@ -192,8 +191,10 @@ def launch_service() -> Tuple[Any, Any, Any, Any]:
         responses[Service.PRED_STR]
     )
 
-def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
-    """Restituisce la lista degli oggetti Employee in base ai dati restituiti dai servizi.
+def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> Tuple[List[Employee], bool]:
+    """Restituisce la lista degli oggetti Employee in base ai dati restituiti dai servizi
+       e booleano che segnala l'utilizzo di valori di stress stimati, in mancanza di quelli
+       forniti dai servizi API.
 
     Se la risposta riguardante lo stress medio per reparto (mean_str) è vuota,
     il programma termina. Il programma terminera' anche se la lista finale
@@ -204,13 +205,14 @@ def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
           in pausa perche' non ancora previsto dai servizi API utilizzati.
 
     :param resps: Risposte dei servizi API.
-    :type resps: Tuple[Dict[Service]]
+    :type resps: Tuple[List[Dict[str, Any]]
     :raises ValueError: Se la lista 'mean_str' o la lista 'emp_list' e' vuota
                         o se c'è' un'inconsistenza nell'id del device.
-    :return: Insieme dei dipendenti presenti.
-    :rtype: List[Employee]
+    :return: Insieme dei dipendenti presenti e flag che indica l'utilizzo
+            di valori di stress stimati.
+    :rtype: Tuple[List[Employee], bool]
     """
-    global used_extimated_stress
+    used_estimated_stress = False
     curr_sched, curr_str, mean_str, pred_str = resps
     if not mean_str:
         raise ValueError("Empty average stress list. Check API response body")
@@ -228,20 +230,20 @@ def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
             else:
                 # se non e' stato possibile leggere lo stress corrente,
                 # viene assegnato lo stress medio del reparto del dipendente
-                used_extimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
+                used_estimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
                 stress_val = dept_avg.get(turno.get("idReparto"))
         else:
-            raise ValueError("Unexpected mismatch in device ids. Check API response.")
+            raise ValueError(f"Unexpected mismatch in device id for device {sw_id}. Check API response.")
         emp = Employee(sw_id, turno, stress_val) # crea l'istanza del dipendente
         emp_list.append(emp)
     if not emp_list:
         raise ValueError("Empty employee list. Check API response body")
     for emp in emp_list:
         # riempe il campo dello stress predetto, relativo a ongi reparto, per ogni dipendete
-        fill_predicted_stress(emp, pred_str, dept_avg)
-    return emp_list
+        used_estimated_stress = fill_predicted_stress(emp, pred_str, dept_avg, used_estimated_stress)
+    return emp_list, used_estimated_stress
 
-def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict) -> None:
+def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict, estimated_stress: bool) -> bool:
     """Ottiene o calcola lo stress predetto relativo a un dipendente per ogni reparto.
 
     Se c'e' un'incosistenza nei valori del device id il programma terinera'. 
@@ -252,11 +254,15 @@ def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict) -> None
     :type pred_str: dict
     :param dept_str: Dati sullo stress medio dei reparti.
     :type dept_str: dict
+    :param estimated_stress: Utilizzo o meno di valori stimati di stress.
+    :type estimated_stress: bool
     :raises ValueError: Se la chiave del device non viene trovata nel dizionario
                         dello stress predetto o se lo stress medio del reparto corrente
                         non ha un valore.
+    :return: Utilizzo o meno di valori stimati di stress.
+    :rtype: bool
     """
-    global used_extimated_stress
+    local_estimated_stress = estimated_stress
     curr_avg = dept_str.get(emp.id_reparto) # stress medio del reparto del dipendente
     if not curr_avg or curr_avg == 0:
         raise ValueError(f"Invalid average stress value for department {emp.id_reparto}")
@@ -276,13 +282,13 @@ def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict) -> None
                     stress = readings[-1].get("value")
                     emp.predicted_stresses[rid] = stress
                 else:
-                    used_extimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
+                    local_estimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
                     emp.predicted_stresses[rid] = avg * (1 + (rel_diff or 0))
             else:
-                raise ValueError("Unexpected mismatch in device ids. Check API response.")
+                raise ValueError(f"Unexpected mismatch in device id for device {emp.id_smartwatch}. Check API response.")
         else:
             emp.predicted_stresses[rid] = avg * (1 + (rel_diff or 0))       
-    return  
+    return local_estimated_stress 
 
 def build_prediction_matrix_and_initial_positions(
     emp_list: List[Employee]
@@ -300,6 +306,8 @@ def build_prediction_matrix_and_initial_positions(
     ordered_ids: List[Optional[int]] = [name_to_id.get(n) for n in ORDERED_DEPT_NAMES]
     matrix: List[List[float]] = []
     for emp in emp_list:
+        if not emp.stress:
+            raise ValueError("Unexpected value for employee stress")
         # legge lo stress predetto del dipendente per ogni reparto
         rep_values = [emp.predicted_stresses.get(rid, emp.stress) if rid is not None else emp.stress for rid in ordered_ids]
         # lo stress predetto per la pausa e' il 60% dello stress medio del dipendente
@@ -309,7 +317,7 @@ def build_prediction_matrix_and_initial_positions(
     j0 = [Task[emp.reparto].value - 1 if emp.reparto and emp.reparto in Task.__members__ else 0 for emp in emp_list]
     return np.array(matrix, dtype=float), j0
 
-def build_schedule_response(sol: np.ndarray, reason: str | None) -> Any:
+def build_schedule_response(sol: np.ndarray, reason: str | None, estimated_stress: bool) -> Any:
     """Costruisce la struttura JSON da restituire al client come risultato
        del problema. Riporta gli assegnamenti dei dipendenti e messaggi di 
        status.
@@ -318,6 +326,8 @@ def build_schedule_response(sol: np.ndarray, reason: str | None) -> Any:
     :type sol: np.darray
     :param reason: Messaggio con eventuali warning da segnalare al client.
     :type reason: str | None
+    :param estimated_stress: Segnala l'utilizzo di valori stimati per lo stress.
+    :type estimated_stress: bool
     :return: Oggetto json contenente la risposta.
     :rtype: Any
     """    
@@ -336,9 +346,8 @@ def build_schedule_response(sol: np.ndarray, reason: str | None) -> Any:
                 "task": task_name
             })
     status_msg = "success"
-    if used_extimated_stress:
+    if estimated_stress:
         status_msg = "solved - WARNING: utilizzati valori di stress meno accurati"
-        used_extimated_stress = False # reset della flag per la chiamata successiva
     return jsonify({
         "assignments": assignments,
         "pauses": pauses,
@@ -353,6 +362,8 @@ def get_timestamps() -> Tuple[int, int]:
              del turno corrente.
     :rtype: Tuple[int, int]
     """
+    shift_start_secs = 0
+    shift_end_secs = 0
     now_secs = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second
     for idx in range(len(SHIFT_HOURS)):
         start_h = SHIFT_HOURS[idx] * 3600
@@ -361,7 +372,11 @@ def get_timestamps() -> Tuple[int, int]:
             shift_start_secs = start_h
             shift_end_secs = end_h
             break
-    return now_secs - shift_start_secs, shift_end_secs - shift_start_secs # type: ignore
+    t_start = now_secs - shift_start_secs
+    t_end = shift_end_secs - shift_start_secs
+    if t_start == 0 or t_end == 0:
+        raise ValueError("Invalid value for either tStart or tEnd")
+    return t_start, t_end
 
 def get_k(tStart: int, tEnd: int) -> float:
     """Calcola il valore del parametro del modello che tiene conto dell'istante
@@ -383,6 +398,7 @@ def get_k(tStart: int, tEnd: int) -> float:
 def solve_optimization(
     matrix: np.ndarray,
     assignment: List[int],
+    used_estimated_stress: bool
 ) -> Any:
     """Risolve il problema di ottimizzazione attraverso la libreria AMPL e
        il risolutore cplex.
@@ -394,12 +410,13 @@ def solve_optimization(
     :type matrix: np.darray
     :param assignment: Lista contenente l'assegnazione corrente ai reparti.
     :type assignment: List[int]
+    :param used_estimated_stress: Segnala l'utilizzo di valori di stress stimati.
+    :type used_estimated_stress: bool
     :raises ValueError: Se La matrice di stress o il vettore degli assegnamenti e' vuoto.
     :raises RuntimeError: Se c'e' stato un problema nella risoluzione del problema di ottimizzazione.
     :return: Struttura JSON da restituire al client.
     :rtype: Any
     """    
-    global used_extimated_stress
     msg = None
     if not matrix.size or not assignment:
         logger.error("Unexpected error. Either sress matrix or current assignment is none")
@@ -414,8 +431,8 @@ def solve_optimization(
         ampl.read(MODEL_FILE)
         # lettura dei parametri necessari dal file DAT
         ampl.readData(DATA_FILE)
-        if used_extimated_stress:
-            msg = "Missing values"
+        if used_estimated_stress:
+            msg = "Dati incompleti ricevuti dai servizi API remoti"
             logger.info(msg)
         rows, cols = matrix.shape
         # caricamento parametri del modello
@@ -434,7 +451,6 @@ def solve_optimization(
             code = int(ampl.getValue("solve_result_num"))
             text = ampl.getValue("solve_result")
             if code != 0:
-                # se il solver non e' OK, interrompo subito
                 raise RuntimeError(f"Solver failed with status {code}: {text}")
             obj_value = ampl.getObjective("TotalCost").value()
             if obj_value == 0:
@@ -445,7 +461,7 @@ def solve_optimization(
                 for j in dept_idx:
                     sol[i-1, j] = ampl.getVariable("x").get(i, j).value()
 
-            return build_schedule_response(sol, msg)
+            return build_schedule_response(sol, msg, used_estimated_stress)
 
         except Exception as e:
             logger.exception("Error while resolving")
@@ -473,9 +489,9 @@ def solve_optimization(
 def schedule_api():
     try:
         resps = launch_service()
-        emp_list = build_employee_list(resps)
+        emp_list, used_estimated_stress = build_employee_list(resps)
         pred_matrix, init_pos = build_prediction_matrix_and_initial_positions(emp_list)
-        return solve_optimization(pred_matrix, init_pos)
+        return solve_optimization(pred_matrix, init_pos, used_estimated_stress)
     
     except ValueError as ve:
         logger.error(f"Input data error: {ve}")
@@ -483,12 +499,12 @@ def schedule_api():
         return jsonify({
             "assignments": [],
             "pauses": [],
-            "status": "error: Dati di input invalidi o problema con API esterne",
+            "status": "error: Dati di input non validi o problema con API esterne",
             "reason": str(ve)
         }), 500
         
     except RuntimeError as re:
-        logger.error(f"Runtime error while resolving: {re}")
+        logger.warning(f"Runtime error while resolving: {re}")
         
         return jsonify({
             "assignments": [],
@@ -503,7 +519,7 @@ def schedule_api():
             "assignments": [],
             "pauses": [],
             "status": "error: Errore interno del server",
-            "reason": "Si è verificato un errore imprevisto durante l'elaborazione della richiesta."
+            "reason": "Errore imprevisto durante l'elaborazione della richiesta."
         }), 500
 
 # ---------------------------------------------------------------------------
