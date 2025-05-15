@@ -1,4 +1,13 @@
 #!/usr/bin/env python3
+"""
+Questo modulo implementa un programma che permette all'utente di creare 
+un file .dat personalizzato, contenente i valori dei parametri del modello per un
+problema di ottimizzazione. Questo file verra' salvato nella directory 'dat_files'.
+L'utente potra' scegliere quali valori impostare manualmente e quali far generare
+automaticamente dal programma. Per poter riprodurre i risultati, qual'ora si scegliesse
+di generare automaticamente alcuni valori, e' previsto l'utilizzo di un seed randomico.
+"""
+
 import random
 import numpy as np
 

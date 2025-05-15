@@ -1,3 +1,11 @@
+"""
+Questo modulo implementa la risoluzione di un problema di ottimizzazione a partire
+da file .dat, contenenti i parametri del modello, creati dall'utente.
+Pensato come ambiente di test, questo programma risolve il problema di ottimizzazione
+tramite AMPL e salva informazioni rilevanti sulla soluzione in un file .csv esterno
+per poter essere analizzati.
+"""
+
 import time
 import csv
 import numpy as np

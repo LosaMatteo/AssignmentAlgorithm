@@ -1,4 +1,22 @@
-﻿from __future__ import annotations
+﻿"""
+Questo modulo implementa un'applicazione Flask per l'ottimizzazione della pianificazione
+dei turni dei dipendenti. Interagisce con servizi API esterni per recuperare dati
+sui dipendenti, i loro turni e i livelli di stress attuali e previsti.
+Utilizza AMPL per risolvere un problema di ottimizzazione al fine di assegnare
+i dipendenti ai reparti minimizzando lo stress complessivo, sotto certi vincoli.
+
+NOTA: Il programma necessita di un file esterno, 'service.json', in cui sono presenti
+      le informazioni necessarie per l'utilizzo dei servizi API.
+
+Funzionalita' principali:
+- Recupero dati da API esterne (turni, stress corrente, stress medio per reparto, stress predetto).
+- Modellazione dei dati dei dipendenti (stress predetto, reparto lavorativo attuale).
+- Risoluzione del problema di ottimizzazione tramite AMPL per trovare l'assegnamento dei dipendenti
+  ai reparti che minimizza lo stress totale.
+- Endpoint Flask per ottenere la pianificazione ottimizzata.
+"""
+
+from __future__ import annotations
 
 import json
 import logging

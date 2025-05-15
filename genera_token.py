@@ -1,3 +1,9 @@
+"""
+Questo modulo gestisce la chiamata al servizio API per la generazione del token.
+Il programma fa utilizzo di file esterni contenenti le informazioni necessarie
+per l'utilizzo del servizio. Il token verra' salvato nel file 'service.json'.
+"""
+
 import requests
 import json
 
