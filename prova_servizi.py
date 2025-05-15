@@ -1,12 +1,11 @@
 ﻿from __future__ import annotations
 
-import argparse
 import json
 import logging
 import sys
 from datetime import datetime
 from enum import Enum
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 
 import numpy as np
 import requests
@@ -14,7 +13,7 @@ from amplpy import AMPL
 from flask import Flask, jsonify
 
 # ---------------------------------------------------------------------------
-# CONFIGURATION & LOGGER
+# LOGGER
 # ---------------------------------------------------------------------------
 
 logging.basicConfig(level=logging.INFO)
@@ -44,7 +43,7 @@ class Service(Enum):
 # ---------------------------------------------------------------------------
 
 class Employee:
-    """Rappresenta un dipendente con turno e dati di stress."""
+    """Rappresenta un dipendente con informazioni sul turno, reparto e stress attuale e previsti"""
     # contatore di classe
     _count: int = 0
 
@@ -75,6 +74,7 @@ class Employee:
             self._set_pausa()
 
     def _set_pausa(self) -> None:
+        """Imposta la pausa a un dipendente"""
         self.reparto = "PAUSE"
         self.id_reparto = None
 
@@ -93,34 +93,20 @@ class Employee:
 # ---------------------------------------------------------------------------
 
 app = Flask(__name__)
-api_mode = False
+used_extimated_stress = False # flag per segnalare l'utilizzo di valori di stress approssimativi
 location_default = "CAPANNONE NUOVO"
-curr_assignment: List[int] | None = None
-pred_matrix: np.ndarray | None = None
-init_pos: List[int] | None = None
-
-# ---------------------------------------------------------------------------
-# UTILITY per generare matrice di test
-# ---------------------------------------------------------------------------
-
-def generate_stress_matrix(rows: int, cols: int, assignment: List[int] | None) -> np.ndarray:
-    if assignment is not None:
-        matrix = np.vstack([
-            np.full(cols, 60) if a == 0 else np.random.randint(50, 100, cols)
-            for a in assignment
-        ])
-        matrix[:, 0] = 20
-        return matrix.astype(float)
-    return np.hstack((
-        np.full((rows, 1), 10),
-        np.random.randint(50, 100, size=(rows, cols - 1)),
-    )).astype(float)
-
-# ---------------------------------------------------------------------------
-# INTEGRAZIONE SERVIZI REST
-# ---------------------------------------------------------------------------
+curr_assignment: List[int] | None = None # assegnamento corrente dipendente - reparto
 
 def launch_service() -> Tuple[Any, Any, Any, Any]:
+    """Gestisce la chiamata ai servizi API e la lettura delle rispettive risposte,
+       insieme alla gestione degli errori.
+        
+    La funzione restituisce la tupla contenente le risposte dei singoli servizi.
+    Se non e' possibile ricevere una risposta dai servizi, viene segnalato l'errore.
+
+    :return: Insieme delle risposte dei servizi API.
+    :rtype: Tuple[Service]
+    """
     try:
         with open("service.json", "r", encoding="utf-8") as f:
             cfg = json.load(f)
@@ -168,12 +154,25 @@ def launch_service() -> Tuple[Any, Any, Any, Any]:
         responses[Service.PRED_STR]
     )
 
-# ---------------------------------------------------------------------------
-# COSTRUZIONE LISTA DIPENDENTI e previsione stress
-# ---------------------------------------------------------------------------
-
 def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
+    """Restituisce la lista degli oggetti Employee in base ai dati restituiti dai servizi.
+
+    Se la risposta riguardante lo stress medio per reparto (mean_str) è vuota,
+    il programma termina. Il programma terminera' anche se la lista finale
+    dei Se sono mancanti dei dati riguardanti lo stress, questi verranno stimati
+    per poter proseguire con la soluzione del problema.
+
+    :param resps: Risposte dei servizi API.
+    :type resps: Tuple[Service]
+    :raises ValueError: Se la lista 'mean_str' o la lista 'emp_list' e' vuota
+                        o se c'è' un'inconsistenza nell'id del device.
+    :return: Insieme dei dipendenti presenti.
+    :rtype: List[Employee]
+    """
+    global used_extimated_stress
     curr_sched, curr_str, mean_str, pred_str = resps
+    if not mean_str:
+        raise ValueError("Empty average stress list. Check API response body")
     dept_avg = {d["idReparto"]: d["stress"] for d in mean_str}
     emp_list: List[Employee] = []
     for rec in curr_sched:
@@ -182,43 +181,106 @@ def build_employee_list(resps: Tuple[Any, Any, Any, Any]) -> List[Employee]:
         key = f"dev-sim-{sw_id}"
         stress_val = None
         if key in curr_str:
-            readings = pred_str.get(key, [])
+            readings = curr_str.get(key, []) # legge lo stress corrente del dipendente
             if readings:
                 stress_val = readings[-1].get("value")
-        emp = Employee(sw_id, turno, stress_val)
+            else:
+                # se non e' stato possibile leggere lo stress corrente,
+                # viene assegnato lo stress medio del reparto del dipendente
+                used_extimated_stress = True # attiva la flag per segnalare l'utilizzo di dati non completi
+                stress_val = dept_avg.get(turno.get("idReparto"))
+        else:
+            raise RuntimeError("Unexpected mismatch in device ids. Check API response.")
+        emp = Employee(sw_id, turno, stress_val) # crea l'istanza del dipendente
         emp_list.append(emp)
+    if not emp_list:
+        raise ValueError("Empty employee list. Check API response body")
     for emp in emp_list:
-        curr_avg = dept_avg.get(emp.id_reparto)
-        rel_diff = None
-        if emp.stress is not None and curr_avg:
-            rel_diff = (emp.stress - curr_avg) / curr_avg
-        for rid, avg in dept_avg.items():
-            emp.predicted_stresses[rid] = avg * (1 + (rel_diff or 0))
+        # riempe il campo dello stress predetto, relativo a ongi reparto, per ogni dipendete
+        fill_predicted_stress(emp, pred_str, dept_avg)
     return emp_list
 
-# ---------------------------------------------------------------------------
-# COSTRUZIONE MATRICE PREVISIONALE e posizioni iniziali
-# ---------------------------------------------------------------------------
+def fill_predicted_stress(emp: Employee, pred_str: dict, dept_str: dict) -> None:
+    """Ottiene o calcola lo stress predetto relativo a un dipendente per ogni reparto.
+
+    Se c'e' un'incosistenza nei valori del device id il programma terinera'. 
+
+    :param emp: Dipendente di cui va calcolato lo stress predetto.
+    :type emp: Employee
+    :param pred_str: Dati sullo stress predetto restituiti dal servizio API.
+    :type pred_str: dict
+    :param dept_str: Dati sullo stress medio dei reparti.
+    :type dept_str: dict
+    :raises ValueError: Se la chiave del device non viene trovata nel dizionario
+                        dello stress predetto o se lo stress medio del reparto corrente
+                        non ha un valore.
+    """
+    global used_extimated_stress
+    curr_avg = dept_str.get(emp.id_reparto) # stress medio del reparto del dipendente
+    if not curr_avg:
+        raise ValueError(f"Empty average stress value for department {emp.id_reparto}")
+    # scarto dello stress del dipendete rispetto alla media del reparto
+    rel_diff = (emp.stress - curr_avg) / curr_avg 
+    for rid, avg in dept_str.items():
+        # Se il reparto e' quello in cui si trova attualmente il dipendente
+        # provo a utilizzare lo stress predetto fornito dal servizio API.
+        # Altrimenti, se il reparto d' diverso o non e' possibile ottenere
+        # lo stress predetto, questio viene stimato attraverso lo scarto relativo dello stress.
+        if rid == emp.id_reparto:
+            key = f"dev-sim-{emp.id_smartwatch}"
+            if key in pred_str:
+                readings = pred_str.get(key, [])
+                if readings:
+                    stress = readings[-1].get("value")
+                    emp.predicted_stresses[rid] = stress
+                else:
+                    used_extimated_stress = True
+                    emp.predicted_stresses[rid] = avg * (1 + (rel_diff or 0))
+            else:
+                raise ValueError("Unexpected mismatch in device ids. Check API response.")
+        else:
+            emp.predicted_stresses[rid] = avg * (1 + (rel_diff or 0))       
+    return  
 
 def build_prediction_matrix_and_initial_positions(
     emp_list: List[Employee]
 ) -> Tuple[np.ndarray, List[int]]:
+    """Costruisce la matrice dello stress predetto e la lista rappresentante 
+       l'assegnamento corrente ai reparti a partire dalla lista dei dipendenti.
+
+    :param emp_list: Lista dei dipendenti presenti.
+    :type emp_list: List[Employee]
+    :return: Matrice contenente lo stress previsto per ogni dipendente per ogni reparto
+             insieme alla lista contenente gli assegnamenti correnti ai reparti.
+    :rtype Tuple[np.ndarray, List[int]
+    """
     name_to_id = {e.reparto.upper(): e.id_reparto for e in emp_list if e.reparto}
     ordered_names = ["PRODUZIONE", "FORNI", "CONFEZIONAMENTO"]
-    ordered_ids = [name_to_id.get(n) for n in ordered_names]
+    ordered_ids: List[Optional[int]] = [name_to_id.get(n) for n in ordered_names]
     matrix: List[List[float]] = []
     for emp in emp_list:
-        rep_values = [emp.predicted_stresses.get(rid, 50.0) for rid in ordered_ids]
+        # legge lo stress predetto del dipendente per ogni reparto
+        rep_values = [emp.predicted_stresses.get(rid, 50.0) if rid is not None else 50.0 for rid in ordered_ids]
+        # lo stress predetto per la pausa e' il 60% dello stress medio del dipendente
         pause_val = 0.6 * float(np.mean(rep_values))
         matrix.append([pause_val] + rep_values)
-    j0 = [Task[emp.reparto].value - 1 if emp.reparto in Task.__members__ else 0 for emp in emp_list]
+    j0: List[int] = [] # vettore degli assegnamenti attuali
+    j0 = [Task[emp.reparto].value - 1 if emp.reparto and emp.reparto in Task.__members__ else 0 for emp in emp_list]
     return np.array(matrix, dtype=float), j0
 
-# ---------------------------------------------------------------------------
-# COSTRUZIONE RISPOSTA JSON
-# ---------------------------------------------------------------------------
+def build_schedule_response(sol: np.ndarray, reason: str | None) -> Any:
+    """Costruisce la struttura JSON da restituire al client come risultato
+       del problema. Riporta gli assegnamenti dei dipendenti e messaggi di 
+       status.
 
-def build_schedule_response(sol: np.ndarray, simulated: bool = False, reason: str = "") -> Any:
+    :param sol: Soluzione del problema di ottimizzazione.
+    :type sol: np.darray
+    :param reason: Messaggio con eventuali warning da segnalare al client.
+    :type reason: str | None
+    :return: Oggetto json contenente la risposta.
+    :rtype: Any
+    """    
+    global used_extimated_stress
     assignments: List[Dict[str, Any]] = []
     pauses: List[Dict[str, Any]] = []
     for idx, row in enumerate(sol, start=1):
@@ -233,8 +295,9 @@ def build_schedule_response(sol: np.ndarray, simulated: bool = False, reason: st
                 "task": task_name
             })
     status_msg = "success"
-    if simulated:
-        status_msg = "warning: generati valori randomici"
+    if used_extimated_stress:
+        status_msg = "solved - WARNING: utilizzati valori di stress meno accurati"
+        used_extimated_stress = False # reset della flag per la chiamata successiva
     return jsonify({
         "assignments": assignments,
         "pauses": pauses,
@@ -242,72 +305,87 @@ def build_schedule_response(sol: np.ndarray, simulated: bool = False, reason: st
         "reason": reason
     })
 
-# ---------------------------------------------------------------------------
-# SOLVER AMPL + CPLEX con gestione errori
-# ---------------------------------------------------------------------------
+def get_timestamps() -> Tuple[int, int]:
+    """Ottiene il timestamp corrente e di fine turno da utilizzare per la soluzione del problema.
 
-def getTimestamps(shift_hours):
+    :return: Timestamp relativo all'istante della chiamata e timestamp relativo alla fine
+             del turno corrente.
+    :rtype: Tuple[int, int]
+    """
     now_secs = datetime.now().hour * 3600 + datetime.now().minute * 60 + datetime.now().second
     for idx in range(len(shift_hours)):
         start_h = shift_hours[idx] * 3600
-        end_h = (shift_hours[idx+1] * 3600) if idx+1 < len(shift_hours) else 24*3600
+        end_h = (shift_hours[idx+1] * 3600) if idx + 1 < len(shift_hours) else 24*3600
         if start_h <= now_secs < end_h:
             shift_start_secs = start_h
             shift_end_secs = end_h
             break
-    return now_secs - shift_start_secs, shift_end_secs - shift_start_secs
+    return now_secs - shift_start_secs, shift_end_secs - shift_start_secs # type: ignore
 
-def getK(tStart, tEnd):
+def get_k(tStart, tEnd) -> float:
+    """Calcola il valore del parametro del modello che tiene conto dell'istante
+       in cui e' stata effettuata la chiamata al servizio rispetto alla fine del turno.
+
+    Restituisce il valore 1 se il parametro tEnd e' uguale a 0.
+
+    :param tStart: Timestamp relativo all'istante della chiamata al servizio.
+    :type tStart: int
+    :param tEnd: Timestamp relativo alla fine del turno attuale.
+    :type tEnd: int
+    :return: Valore della funzione 1 / (1 - (tStart / tEnd) + epsilon)
+    :rtype: float
+    """
     epsilon = 0.0001
     if tEnd != 0: return 1 / (1 - (tStart / tEnd) + epsilon)
     return 1
 
 def solve_optimization(
-    rows: int | None = None,
-    cols: int | None = None,
-    matrix: np.ndarray | None = None,
-    assignment: List[int] | None = None,
+    matrix: np.ndarray,
+    assignment: List[int],
 ) -> Any:
-    global curr_assignment
-    simulated = False
-    reason = ""
+    """Risolve il problema di ottimizzazione attraverso la libreria AMPL e
+       il risolutore cplex.
+
+    Il programma termina se viene rilevata un'inconsistenza nei dati peraparati
+    per il modello o se viene rilevato un problema nella risoluzione del problema.
+
+    :param matrix: Matrice relativa allo stress predetto per ogni dipendente in ogni reparto.
+    :type matrix: np.darray
+    :param assignment: Lista contenente l'assegnazione corrente ai reparti.
+    :type assignment: List[int]
+    :raises ValueError: Se La matrice di stress o il vettore degli assegnamenti e' vuoto.
+    :raises RuntimeError: Se c'e' stato un problema nella risoluzione del problema di ottimizzazione.
+    :return: Struttura JSON da restituire al client.
+    :rtype: Any
+    """    
+    global curr_assignment, used_extimated_stress
+    msg = None
+    if not matrix or not assignment:
+        raise ValueError("Unexpected error. Either sress matrix or current assignment is none")
     try:
         try:
             ampl = AMPL()
             ampl.read("model.mod")
-            # Leggi solo parametri specifici dal file DAT
+            # lettura dei parametri necessari dal file DAT
             ampl.readData("param_values.dat")
-            logger.info("Parametri selettivi caricati da param_values.dat")
+            logger.info("Parametri caricati da param_values.dat")
         except Exception as exc:
             last_status = f"error: caricamento parametri AMPL - {exc}"
             logger.exception(last_status)
             sys.exit(1)
-        # Se non ho matrice passata, uso quella globale
-        if matrix is None:
-            matrix = pred_matrix
-        # Se non ho assignment passata, uso globale
-        if assignment is None:
-            assignment = init_pos
-        # Se ancora mancanti, segnalo simulazione
-        if matrix is None or assignment is None:
-            simulated = True
-            reason = "mancano dati reali, uso valori simulati"
-            rows, cols = len(Employee.total_employees()), len(Task.__members__)
-            matrix = generate_stress_matrix(rows, cols, curr_assignment)
-            if curr_assignment is None:
-                curr_assignment = [1] * rows
-        elif rows is None or cols is None:
-            rows, cols = matrix.shape
-        # Imposto j0 da assignment
+        if used_extimated_stress:
+            msg = "Missing values"
+            logger.info(msg)
         curr_assignment = assignment
-        # Imposto set di AMPL
+        rows, cols = matrix.shape
+        # caricamento parametri del modello
         emp_idx = list(range(1, rows + 1))
         dept_idx = list(range(cols))
         ampl.getSet("EMPLOYEES").setValues(emp_idx)
-        ampl.getSet("DEPARTMENTS").setValues(dept_idx)
+        ampl.getSet("DEPARTMENTS").setValues(dept_idx)            
         ampl.getParameter("s").setValues(matrix)
-        tStart_val, tEnd_val = getTimestamps(shift_hours)
-        ampl.getParameter("k").set(getK(tStart_val, tEnd_val))
+        tStart_val, tEnd_val = get_timestamps()
+        ampl.getParameter("k").set(get_k(tStart_val, tEnd_val))
         ampl.getParameter("j0").setValues(assignment)
         ampl.option["solver"] = "cplex"
         try:
@@ -316,25 +394,26 @@ def solve_optimization(
             code = int(ampl.getValue("solve_result_num"))
             text = ampl.getValue("solve_result")
             if code != 0:
-                # se il solver non è OK, interrompo subito
+                # se il solver non e' OK, interrompo subito
                 raise RuntimeError(f"Solver failed with status {code}: {text}")
             obj_value = ampl.getObjective("TotalCost").value()
             if obj_value == 0:
-                # se l’obiettivo è zero, è un caso anomalo
+                # se l’obiettivo e' zero, e' un caso anomalo
                 raise RuntimeError(f"Objective value is zero: {obj_value}")
-            sol = np.zeros_like(matrix)
+            sol = np.zeros_like(matrix) # prepara la soluzione da mostrare
             for i in emp_idx:
                 for j in dept_idx:
                     sol[i-1, j] = ampl.getVariable("x").get(i, j).value()
             curr_assignment = sol.argmax(axis=1).tolist()
+            """
             print(matrix)
             print(assignment)
             print(curr_assignment)
-            print(getK(tStart_val, tEnd_val))
+            print(get_k(tStart_val, tEnd_val))
             print(tStart_val)
             print(tEnd_val)
-
-            return build_schedule_response(sol, simulated, reason)
+            """
+            return build_schedule_response(sol, msg)
 
         except Exception as e:
             logger.exception("Errore generico AMPL")
@@ -350,7 +429,7 @@ def solve_optimization(
             "assignments": [],
             "pauses": [],
             "status": f"error: {e}",
-            "reason": "Non è stato possibile generare randomicamente la matrice: nessun dato nell'API"
+            "reason": "Non e' stato possibile generare randomicamente la matrice: nessun dato nell'API"
         }), 500
     except Exception as e:
         logger.exception("Errore in solve_optimization")
@@ -368,14 +447,15 @@ def solve_optimization(
 @app.route("/schedule", methods=["GET"])
 def schedule_api():
     try:
-        resps = launch_service()
-        emp_list = build_employee_list(resps)
+        resps = launch_service() # chiamata ai servizi
+        emp_list = build_employee_list(resps) # ottiene lista dei dipendenti
+        # ottiene matrice dello stress predetto e vettore degli assegnamenti attuale
         pred_matrix, init_pos = build_prediction_matrix_and_initial_positions(emp_list)
-        return solve_optimization(matrix=pred_matrix, assignment=init_pos)
-    except Exception as e:
+        # risolve il problema di ottimizzazione e restituisce la risposta al client
+        return solve_optimization(pred_matrix, init_pos)
+    except Exception:
         logger.exception("Errore avvio servizio")
         sys.exit(1)
-   
 
 # ---------------------------------------------------------------------------
 # MAIN

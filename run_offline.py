@@ -72,7 +72,6 @@ def solve_dat_file(dat_filename):
         if old > 0 and new > 0 and old != new
         )
 
-
     try:
         onpause = ampl.getParameter("onpause").value()
     except Exception as e:

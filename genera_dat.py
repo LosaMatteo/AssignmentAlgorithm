@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import os
 import random
 import numpy as np
 
@@ -81,7 +80,7 @@ def main():
             if same_s_pause == 'S':
                 if i == 0:
                     s_pause = float(input("Inserisci il livello di stress atteso per il reparto pausa (j=0): "))
-                row.append(s_pause)
+                    row.append(s_pause)
             else:
                 val = float(input(f"Inserisci il livello di stress atteso per il dipendente {i+1} in pausa (j=0): "))
                 row.append(val)
@@ -126,10 +125,12 @@ def main():
 
             T_matrix[i][j] = valore
             T_matrix[j][i] = valore  # Mantieni la simmetria
-    try:
-        tStart = int(input(f"Inserisci il timestamp attuale del turno. (tEnd = {tEnd}): "))
-    except ValueError:
-        print("Valore non valido. Inserisci un numero intero.")
+    while True:
+        try:
+            tStart = int(input(f"Inserisci il timestamp attuale del turno. (tEnd = {tEnd}): "))
+            break;
+        except ValueError:
+            print("Valore non valido. Inserisci un numero intero.")
 
     # Chiedi il nome del file .dat da generare
     dat_filename = input("Inserisci il nome del file .dat da generare (es. istanza1.dat): ").strip()
