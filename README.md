@@ -1,8 +1,8 @@
 # AssignmentAlgorithm
 
 Programma per il ri-assegnamento dei dipendenti ai vari reparti di un'azienda in base ai loro livelli di stress.
-Utilizza un modello di ottimizzazione (file `paramfunction.mod`) per assegnare i dipendenti ai reparti o a una pausa, minimizzando lo stress complessivo.
-Alcuni parametri del modello possono essere modificati tramite il file `param_values.dat`, in particolare il parametro di dipendenti minimo per reparto che può portare a un problema di ottimizzazone non risolvibile.
+Utilizza un modello di ottimizzazione (file `model.mod`) per assegnare i dipendenti ai reparti o a una pausa, minimizzando lo stress complessivo.
+Alcuni parametri del modello possono essere modificati tramite il file `param_values.dat`.
 Al momento, il codice è stato testato solo in ambiente Linux.
 
 ## Funzionalità
@@ -21,7 +21,7 @@ pip install flask numpy
 ## Utilizzo del programma
 - Lanciare il programma principale:
 ```bash
-python run_API.py
+python prova_servizi.py
 ```
 - In un altro terminale, assicurandosi di aver installato curl nel proprio sistema:
 ```bash
