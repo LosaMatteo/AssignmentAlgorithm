@@ -23,6 +23,10 @@ pip install flask numpy
 ```bash
 python prova_servizi.py
 ```
+- Assicurarsi di avere un token aggiornato. Nel caso contrario, generare il token tramite:
+```bash
+python genera_token.py
+```
 - In un altro terminale, assicurandosi di aver installato curl nel proprio sistema:
 ```bash
 curl http://127.0.0.1:5000/schedule
